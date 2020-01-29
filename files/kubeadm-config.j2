@@ -1,0 +1,25 @@
+apiVersion: kubeadm.k8s.io/v1beta1
+kind: ClusterConfiguration
+kubernetesVersion: v1.13.3
+imageRepository: "{{ google_repo }}"
+apiServer:
+  certSANs:
+  - "{{ loadbalance_external_ip }}"
+  - "{{ loadbalance_inside_ip }}"
+  - "apiserver.{{ root_domain }}"
+{% for ipaddr in groups.master %}
+  - "{{ ipaddr }}"
+{% endfor %}
+networking:
+  podSubnet: 10.244.0.0/16
+  serviceSubnet: 10.96.0.0/12
+controlPlaneEndpoint: "apiserver.{{ root_domain }}:6443"
+etcd:
+  external:
+    endpoints:
+{% for etcdipaddr in groups.etcd %}
+    - "https://{{ etcdipaddr }}:2379"
+{% endfor %}
+    caFile: /etc/kubernetes/pki/etcd/ca.crt
+    certFile: /etc/kubernetes/pki/apiserver-etcd-client.crt
+    keyFile: /etc/kubernetes/pki/apiserver-etcd-client.key

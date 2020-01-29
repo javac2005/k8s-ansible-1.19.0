@@ -1,0 +1,737 @@
+#配置免密登录、主机名、hosts
+#--------------------------------------------------------------------
+- hosts: ctrl
+  connection: local
+  tasks:
+  - name: 检查秘钥是否存在
+    tags: ssh,ssh-keygen
+    local_action: stat path=/root/.ssh/id_rsa
+    register: stat_result
+  - name: 如果不存在则创建秘钥
+    tags: ssh,ssh-keygen
+    command: ssh-keygen -t rsa -P "" -f /root/.ssh/id_rsa
+    when: stat_result.stat.exists == false
+- hosts: all
+  tasks:
+  - name: 分发秘钥
+    tags: ssh,ssh-auth-all
+    authorized_key:
+      user: root
+      key: "{{ lookup('file', '/root/.ssh/id_rsa.pub') }}"
+      state: present
+      exclusive: yes
+  - name: 修改主机名
+    tags: ssh,ssh-auth-all
+    hostname:
+      name: "{{ hostname }}"
+  - name: 配置hosts
+    tags: ssh,ssh-auth-all
+    lineinfile:
+      path: /etc/hosts
+      line: "{{inventory_hostname}} {{hostname}}"
+- hosts: master
+  tasks:
+  - name: 配置master的host：多个master负载均衡（master）
+    tags: ssh,ssh-master
+    lineinfile:
+      path: /etc/hosts
+      line: "{{ groups.master[0] }} apiserver.{{ root_domain }}"
+- hosts: node,ctrl
+  tasks:
+  - name: 配置node的host：多个master负载均衡
+    tags: ssh,ssh-node
+    lineinfile:
+      path: /etc/hosts
+      line: "{{ loadbalance_inside_ip }} apiserver.{{ root_domain }}"
+
+#准备，安装：必要软件、docker、k8s 
+#--------------------------------------------------------------------
+- hosts: all
+  tasks:
+#  - name: 更新系统
+#    tags: prepare,prepare-update
+#    yum: name=* state=latest update_cache=yes
+  - name: 安装必要软件
+    tags: prepare,prepare-softs
+    yum: name="{{ packages }}" state=present
+    vars:
+      packages:
+      - nfs-utils
+      - epel-release
+      - net-tools
+      - wget
+      - ntpdate
+      - bash-completion
+      - lrzsz
+      - unzip
+      - bridge-utils.x86_64
+      - yum-utils
+      - device-mapper-persistent-data
+      - lvm2
+  - name: 检查防火墙服务
+    tags: prepare,prepare-env
+    shell: "if systemctl list-unit-files | grep firewalld > /dev/null; then echo true; else echo false; fi;"
+    register: firewalld_exists
+  - name: 关闭防火墙
+    tags: prepare,prepare-env
+    shell: "systemctl stop firewalld.service || true &&\ 
+           systemctl disable firewalld.service || true "
+    when: firewalld_exists
+  - name: 禁用selinux
+    tags: prepare,prepare-env
+    shell: "setenforce 0 || true &&\ 
+            sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config"
+  - name: 禁用swap
+    tags: prepare,prepare-env
+    shell: swapoff -a
+    ignore_errors: yes
+  - name: 开机启动禁用swap
+    tags: prepare,prepare-env
+    shell: "sed -i 's/^.*swap*/#&/g' /etc/fstab"
+    ignore_errors: yes
+  - name: 加载bridge、br_netfilter模块，并设置开机启动
+    tags: prepare,prepare-env
+    shell: "modprobe bridge && modprobe br_netfilter &&\ 
+            touch /etc/modules-load.d/k8s.conf && echo 'bridge' > /etc/modules-load.d/k8s.conf &&\ 
+            echo 'br_netfilter' >> /etc/modules-load.d/k8s.conf"
+  - name: 设置iptables转发规则
+    tags: prepare,prepare-env
+    sysctl:
+      name: "{{ item.name }}"
+      value: "{{ item.value }}"
+      sysctl_set: yes
+      state: present
+      reload: yes
+    with_items:
+    - {"name":"net.bridge.bridge-nf-call-iptables", "value":1}
+    - {"name":"net.bridge.bridge-nf-call-ip6tables","value":1}
+    - {"name":"vm.swappiness","value":0}
+  - name: 同步时间
+    tags: prepare,prepare-env
+    shell: rm -rf /etc/localtime && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && ntpdate -u cn.pool.ntp.org
+  - name: 判断是否配置过docker-ce.repo
+    tags: prepare,prepare-docker
+    shell: ls /etc/yum.repos.d | grep docker-ce.repo || echo 0
+    register: check_docker_ce_repo
+  - name: 配置docker-ce.repo（如果没配置过）
+    tags: prepare,prepare-docker
+    shell: "yum-config-manager --add-repo http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo"
+    when: check_docker_ce_repo.stdout == "0"
+  - name: 判断是否已安装docker
+    tags: prepare,prepare-docker
+    shell: ls /usr/lib/systemd/system | grep docker.service || echo 0
+    register: check_docker
+  - name: 安装docker-ce-17.03.2
+    tags: prepare,prepare-docker
+    shell: "yum -y install --setopt=obsoletes=0 \
+      https://download.docker.com/linux/centos/7/x86_64/stable/Packages/docker-ce-selinux-17.03.2.ce-1.el7.centos.noarch.rpm \
+      docker-ce-17.03.2.ce-1.el7.centos"
+    when: check_docker.stdout == "0"
+  - name: 启动 docker
+    tags: prepare,prepare-docker
+    shell: systemctl daemon-reload;systemctl enable docker;systemctl start docker
+  - name: 配置k8s源
+    tags: prepare,prepare-k8s
+    copy: src=files/kubernetes.repo dest=/etc/yum.repos.d/
+- hosts: master,node
+  tasks:
+  - name: 安装k8s
+    tags: prepare,prepare-k8s
+    yum: name={{ packages }} state=present
+    vars:
+      packages:
+      - kubernetes-cni-0.6.0
+      - kubelet-1.13.3
+      - kubeadm-1.13.3
+      - kubectl-1.13.3
+  - name: 开机启动kubelet
+    tags: prepare,prepare-k8s
+    shell: systemctl daemon-reload;systemctl enable kubelet
+  - name: 拉取k8s必要镜像
+    tags: prepare,prepare-images
+    shell: "docker pull {{ google_repo }}/{{ item }}"
+    with_items: 
+    - kube-proxy:v1.13.3
+    - kube-apiserver:v1.13.3
+    - kube-controller-manager:v1.13.3
+    - kube-scheduler:v1.13.3
+    - coredns:1.2.6
+    - etcd:3.2.24
+    - pause:3.1
+  - name: 拉取flannel镜像
+    tags: prepare,flannel,flannel-images
+    shell: "docker pull {{ ali_repo }}/flannel:v0.10.0-amd64"
+  - name: 拉取calico镜像
+    tags: prepare,calico,calico-images
+    shell: "docker pull {{ ali_repo }}/{{ item }} "
+    with_items: 
+    - calico-cni:v3.6.1
+    - calico-node:v3.6.1
+    - calico-kube-controllers:v3.6.1
+- hosts: etcd
+  tasks:
+  - name: 拉取etcd镜像
+    tags: prepare,prepare-images
+    shell: "docker pull {{ google_repo }}/etcd:3.2.24"
+- hosts: node
+  tasks:
+  - name: 拉取ingress镜像
+    tags: prepare,prepare-images
+    shell: "docker pull {{ ali_repo }}/nginx-ingress-controller:0.21.0"
+  - name: 安装共享存储
+    tags: prepare,prepare-storage
+    mount: fstype=nfs path=/k8s src="{{ nfs_server_host }}" opts="vers=4.0,minorversion=0,noresvport" state=mounted
+  - name: 配置节点最小剩余内存2G，避免内存跑满
+    tags: prepare,prepare-k8s,prepare-k8s-memory
+    shell: echo 'KUBELET_EXTRA_ARGS="--eviction-hard=memory.available<2048Mi"' > /etc/sysconfig/kubelet
+- hosts: master[0]
+  tasks:
+  - name: 为ctrl节点安装kubectl
+    tags: prepare,ctrl-kubectl
+    fetch: src="/usr/bin/kubectl" dest="/usr/bin/kubectl" flat=yes
+- hosts: ctrl
+  tasks:
+  - name: 修改kubectl权限
+    tags: prepare,ctrl-kubectl
+    file: path=/usr/bin/kubectl mode=0755
+
+#安装三个etcd
+#-------------------------------------------------------------------
+- hosts: ctrl
+  vars:
+    etcds:
+    - {"path":"/tmp/etcd/etcd0","name":"etcd0","host":"{{ groups.etcd[0] }}"}
+    - {"path":"/tmp/etcd/etcd1","name":"etcd1","host":"{{ groups.etcd[1] }}"}
+    - {"path":"/tmp/etcd/etcd2","name":"etcd2","host":"{{ groups.etcd[2] }}"}
+  tasks:
+  - name: 解决证书有效期为一年的问题
+    tags: etcd,etcd-kubeadm
+    shell: "docker pull {{ ali_repo }}/kubeadm:1.13.3 && docker run --rm -v /tmp/kubeadm/:/tmp/kubeadm/ \
+            {{ ali_repo }}/kubeadm:1.13.3 sh -c 'cp /kubeadm /tmp/kubeadm/' &&\ 
+            mv /tmp/kubeadm/kubeadm /usr/bin/ -f || true && chmod +x /usr/bin/kubeadm"
+  - name: 删除目录 /etc/kubernetes、/tmp/etcd
+    tags: etcd,etcd-dirs
+    file:
+      path: "{{ item }}"
+      state: absent
+    with_items:
+    - /etc/kubernetes
+    - /tmp/etcd
+  - name: 创建目录 /tmp/etcd/xxx
+    tags: etcd,etcd-dirs
+    file:
+      path: "{{ item.path }}"
+      state: directory
+    with_items: "{{ etcds }}"
+  - name: 创建k8s的config配置文件目录 /root/.kube
+    tags: etcd,etcd-ctrl-kubeconfig
+    file:
+      path: /root/.kube
+      state: directory
+  - name: 生成配置文件
+    tags: etcd,etcd-yaml
+    template:
+      src: files/etcd.j2
+      dest: "{{ item.path }}/etcd.yaml"
+    with_items: "{{ etcds }}"
+  - name: 生成ca证书
+    tags: etcd,etcd-ca
+    shell: "kubeadm init phase certs etcd-ca"
+  - name: 生成其他证书
+    tags: etcd,etcd-certs
+    shell: "kubeadm init phase certs etcd-server --config={{ item.path }}/etcd.yaml &&\ 
+            kubeadm init phase certs etcd-peer --config={{ item.path }}/etcd.yaml &&\ 
+            kubeadm init phase certs etcd-healthcheck-client --config={{ item.path }}/etcd.yaml &&\ 
+            kubeadm init phase certs apiserver-etcd-client --config={{ item.path }}/etcd.yaml &&\ 
+            cp -R /etc/kubernetes/pki {{ item.path }} &&\ 
+            find /etc/kubernetes/pki -not -name ca.crt -not -name ca.key -type f -delete"
+    with_items: "{{ etcds }}"
+  - name: 删除/etc/kubernetes
+    tags: etcd,etcd-delete-kubernetes
+    file:
+      path: /etc/kubernetes
+      state: absent
+  - name: 删除/data/backup/etcd
+    tags: etcd,etcd-backup
+    file:
+      path: /data/backup/etcd
+      state: absent
+  - name: 备份证书
+    tags: etcd,etcd-backup
+    copy:
+      src: /tmp/etcd/
+      dest: /data/backup/etcd
+- hosts: etcd
+  tasks:
+  - name: 删除/etc/kubernetes
+    tags: etcd,etcd-create-kubernetes
+    file:
+      path: /etc/kubernetes
+      state: absent
+  - name: 拷贝证书文件
+    tags: etcd,etcd-copy-certs
+    copy:
+      src: "/tmp/etcd/{{ hostname }}/pki/"
+      dest: /etc/kubernetes/pki
+  - name: 删除 ca.key
+    tags: etcd,etcd-delete-ca
+    file:
+      path: /etc/kubernetes/pki/etcd/ca.key
+      state: absent
+  - name: 删除容器
+    tags: etcd,etcd-delete-etcd
+    shell: "docker rm -vf etcd"
+    ignore_errors: yes
+  - name: 删除/var/lib/etcd
+    tags: etcd,etcd-delete-etcd
+    file:
+      path: /var/lib/etcd
+      state: absent
+    ignore_errors: yes
+  - name: 启动docker容器
+    tags: etcd,etcd-run
+    shell: "docker run --name etcd --restart always -d -p 2379:2379 -p 2380:2380 \
+            -v /var/lib/etcd/:/var/lib/etcd/ \
+            -v /etc/kubernetes/:/etc/kubernetes/ \
+            {{ google_repo }}/etcd:3.2.24 etcd \
+            --advertise-client-urls=https://{{ inventory_hostname }}:2379 \
+            --initial-advertise-peer-urls=https://{{ inventory_hostname }}:2380 \
+            --initial-cluster='{{ hostvars[groups.etcd[0]]['hostname'] }}=https://{{ groups.etcd[0] }}:2380,{{ hostvars[groups.etcd[1]]['hostname'] }}=https://{{ groups.etcd[1] }}:2380,{{ hostvars[groups.etcd[2]]['hostname'] }}=https://{{ groups.etcd[2] }}:2380' \
+            --initial-cluster-state=new \
+            --listen-client-urls=https://0.0.0.0:2379 \
+            --listen-peer-urls=https://0.0.0.0:2380 \
+            --name={{ hostname }} \
+            --client-cert-auth=true \
+            --data-dir=/var/lib/etcd \
+            --cert-file=/etc/kubernetes/pki/etcd/server.crt \
+            --key-file=/etc/kubernetes/pki/etcd/server.key \
+            --peer-cert-file=/etc/kubernetes/pki/etcd/peer.crt \
+            --peer-client-cert-auth=true \
+            --peer-key-file=/etc/kubernetes/pki/etcd/peer.key \
+            --peer-trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt \
+            --snapshot-count=10000 \
+            --trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt"
+
+#初始化第一个master节点
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: 解决证书有效期为一年的问题
+    tags: master,master-kubeadm
+    shell: "docker pull {{ ali_repo }}/kubeadm:1.13.3 && docker run --rm -v /tmp/kubeadm/:/tmp/kubeadm/ \
+            {{ ali_repo }}/kubeadm:1.13.3 sh -c 'cp /kubeadm /tmp/kubeadm/' &&\ 
+            mv /tmp/kubeadm/kubeadm /usr/bin/ -f || true && chmod +x /usr/bin/kubeadm"
+  - name: 拷贝kubeadm-config.yaml配置文件
+    tags: master,master-copy-config
+    template:
+      src: files/kubeadm-config.j2
+      dest: ./kubeadm-config.yaml
+  - name: 创建etcd证书目录
+    tags: master,master-copy-etcd
+    file:
+      path: /etc/kubernetes/pki/etcd
+      state: directory
+  - name: 拷贝etcd证书
+    tags: master,master-copy-etcd
+    copy:
+      src: "/data/backup/etcd/etcd0/{{ item }}"
+      dest: "/etc/kubernetes/{{ item }}"
+    with_items:
+    - pki/etcd/ca.crt
+    - pki/apiserver-etcd-client.crt
+    - pki/apiserver-etcd-client.key
+  - name: 初始化第一个master
+    tags: master,master-init
+    shell: kubeadm init --config=kubeadm-config.yaml
+  - name: 配置kubectl的执行环境
+    tags: master,master-env
+    shell: "mkdir -p /root/.kube &&\ 
+           rm -rf /root/.kube/config &&\ 
+           cp /etc/kubernetes/admin.conf /root/.kube/config"
+  #安装flannel网络（与calico二选一）
+  - name: 创建flannel配置文件目录
+    tags: master,flannel
+    file:
+      path: /etc/cni/net.d/
+      state: directory
+  - name: 拷贝flannel配置文件
+    tags: master,flannel
+    copy:
+      src: files/10-flannel.conflist
+      dest: /etc/cni/net.d/
+  - name: 拷贝kube-flannel.yml文件
+    tags: master,flannel
+    template:
+      src: files/kube-flannel.j2
+      dest: ./kube-flannel.yaml
+  - name: 安装flannel网络
+    tags: master,flannel
+    shell: kubectl apply -f kube-flannel.yaml
+  #安装calico网络（与flannel二选一）
+  - name: 拷贝calico的yaml文件
+    tags: master,calico
+    copy:
+      src: files/calico.yaml
+      dest: .
+  - name: 安装calico网络
+    tags: master,calico
+    shell: kubectl apply -f calico.yaml
+  - name: 从master[0]拷贝k8s的config
+    tags: master,master-admin
+    fetch: src=/etc/kubernetes/admin.conf dest=/root/.kube/config flat=yes
+  - name: 从master[0]拷贝证书
+    tags: master,master-backup
+    fetch: src="/etc/kubernetes/{{ item }}" dest="/data/backup/kubernetes/{{ item }}" flat=yes
+    with_items:
+    - "pki/ca.crt"
+    - "pki/ca.key"
+    - "pki/sa.key"
+    - "pki/sa.pub"
+    - "pki/front-proxy-ca.crt"
+    - "pki/front-proxy-ca.key"
+    - "pki/apiserver-etcd-client.key"
+    - "pki/apiserver-etcd-client.crt"
+    - "pki/etcd/ca.crt"
+    - "admin.conf"
+  - name: 等待第一个master启动
+    tags: master,master-wait
+    shell: kubectl get pods --all-namespaces | grep -c Running
+    register: master_result
+    until: master_result.stdout >= "7"
+    retries: 9999
+    delay: 5
+
+#获得加入集群的token
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: 删除所有token
+    tags: token
+    shell: for token in $(kubeadm token list | tail -n +2 | awk '{print $1}') ; do kubeadm token delete $token; done
+  - name: 创建token
+    tags: token
+    shell: kubeadm token create
+  - name: 获得token，赋给master-token变量
+    tags: token
+    shell: "kubeadm token list | tail -n +2 | head -n 1 | awk '{print $1}'"
+    register: master_token
+  - name: 获得加入集群的discovery-token-ca-cert-hash并赋值给discovery-token-ca-cert-hash变量
+    tags: token
+    shell: "openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | \
+            openssl dgst -sha256 -hex | sed 's/^.* //'"
+    register: discovery_token
+
+#其他master加入集群
+#--------------------------------------------------------------------
+- hosts: master[1],master[2]
+  tasks:
+  - name: 设置master_token变量
+    tags: masters,masters-token
+    set_fact: master_token="{{ hostvars[groups.master[0]]['master_token'] }}"
+  - name: 设置discovery_token变量
+    tags: masters,masters-token
+    set_fact: discovery_token="{{ hostvars[groups.master[0]]['discovery_token'] }}"
+  - name: 创建flannel配置文件目录
+    tags: masters,flannel
+    file:
+      path: /etc/cni/net.d/
+      state: directory
+  - name: 拷贝flannel配置文件
+    tags: masters,flannel
+    copy:
+      src: files/10-flannel.conflist
+      dest: /etc/cni/net.d/
+  - name: 创建证书文件目录
+    tags: masters,masters-certs
+    file:
+      path: /etc/kubernetes/pki/etcd/
+      state: directory
+  - name: 拷贝证书文件
+    tags: masters,masters-certs
+    copy:
+      src: "/data/backup/kubernetes/{{ item }}"
+      dest: "/etc/kubernetes/{{ item }}"
+    with_items:
+    - "pki/ca.crt"
+    - "pki/ca.key"
+    - "pki/sa.key"
+    - "pki/sa.pub"
+    - "pki/front-proxy-ca.crt"
+    - "pki/front-proxy-ca.key"
+    - "pki/apiserver-etcd-client.key"
+    - "pki/apiserver-etcd-client.crt"
+    - "pki/etcd/ca.crt"
+    - "admin.conf"
+  - name: master加入集群
+    tags: masters,masters-join
+    shell: "kubeadm join {{ groups.master[0] }}:6443 \
+            --token {{ master_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ discovery_token.stdout }} \
+            --experimental-control-plane"
+- hosts: master[0]
+  tasks:
+  - name: 等待其他master启动
+    tags: masters,masters-wait
+    shell: kubectl get pods --all-namespaces | grep -c Running
+    register: masters_result
+    until: masters_result.stdout >= "17"
+    retries: 9999
+    delay: 5
+
+#node加入集群
+#--------------------------------------------------------------------
+- hosts: node
+  tasks:
+  - name: 设置master_token变量
+    tags: node,node-token
+    set_fact: master_token="{{ hostvars[groups.master[0]]['master_token'] }}"
+  - name: 设置discovery_token变量
+    tags: node,node-token
+    set_fact: discovery_token="{{ hostvars[groups.master[0]]['discovery_token'] }}"
+  - name: 创建flannel配置文件目录
+    tags: node,flannel
+    file:
+      path: /etc/cni/net.d/
+      state: directory
+  - name: 拷贝flannel配置文件
+    tags: node,flannel
+    copy:
+      src: files/10-flannel.conflist
+      dest: /etc/cni/net.d/
+  - name: node加入集群
+    tags: node,node-join
+    shell: "kubeadm join {{ loadbalance_inside_ip }}:6443 \
+            --token {{ master_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ discovery_token.stdout }}"
+  - name: 等待node启动，1分钟
+    tags: node,node-wait
+    shell: sleep 60
+
+#安装ingress
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: 拷贝配置文件
+    tags: ingress
+    template:
+      src: files/ingress-0.21.0.j2
+      dest: ./ingress-0.21.0.yaml
+  - name: 执行安装ingress
+    tags: ingress
+    shell: kubectl apply -f ingress-0.21.0.yaml
+  - name: 等待ingress全部启动
+    tags: ingress,ingress-wait
+    shell: kubectl get pods -n ingress-nginx | grep nginx-ingress-controller | grep -c Running
+    register: ingress_result
+    until: ingress_result.stdout == "{{groups.node | length}}"
+    retries: 9999
+    delay: 5
+
+#安装dashboard
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: 拷贝配置文件
+    tags: dashboard
+    template:
+      src: "files/{{ item }}"
+      dest: .
+    with_items:
+    - dashboard-ingress.yaml
+    - dashboard-rbac.yaml
+    - dashboard-deploy-1.10.1.yaml
+  - name: 执行安装kubernetes-dashboard.yaml
+    tags: dashboard
+    shell: kubectl apply -f dashboard-deploy-1.10.1.yaml
+  - name: 执行安装rbac
+    tags: dashboard
+    shell: kubectl apply -f dashboard-rbac.yaml
+#  - name: 安装dashboard的ingress证书
+#    tags: dashboard
+#    shell: "rm -rf ./tls.key && rm -rf ./tls.crt &&\ 
+#            openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout ./dashboard.{{ root_domain }}.key -out ./dashboard.{{ root_domain }}.crt -subj '/CN=dashboard.{{ root_domain }}' &&\ 
+#            kubectl -n kube-system create secret tls k8s-dashboard-secret --key ./dashboard.{{ root_domain }}.key --cert ./dashboard.{{ root_domain }}.crt &&\ 
+#            cat dashboard.{{ root_domain }}.crt dashboard.{{ root_domain }}.key | tee dashboard.{{ root_domain }}.pem"
+  - name: 执行安装dashboard-ingress.yaml
+    tags: dashboard
+    shell: kubectl apply -f dashboard-ingress.yaml
+  - name: 等待dashboard启动
+    tags: dashboard,dashboard-wait
+    shell: kubectl get pods -n kube-system | grep kubernetes-dashboard | grep -c Running
+    register: dashboard_result
+    until: dashboard_result.stdout >= "1"
+    retries: 9999
+    delay: 5
+
+#安装helm tiller
+#--------------------------------------------------------------------
+- hosts: ctrl
+  tasks:
+  - name: 检查helm是否存在
+    tags: helm
+    local_action: stat path=/usr/bin/helm
+    register: stat_result_helm
+  - name: 下载helm二进制文件
+    tags: helm
+    shell: "docker pull {{ ali_repo }}/helm:v2.13.0-rc.2 && docker run --rm -v /tmp/helm/:/tmp/helm/ \
+            {{ ali_repo }}/helm:v2.13.0-rc.2 sh -c 'cp /helm/* /tmp/helm' &&\ 
+            mv /tmp/helm/* /usr/bin/ -f || true && chmod +x /usr/bin/helm /usr/bin/tiller"
+    when: stat_result_helm.stat.exists == false
+  - name: 初始化
+    tags: helm
+    shell: helm init --upgrade -i registry.cn-hangzhou.aliyuncs.com/google_containers/tiller:v2.13.0-rc.2 --stable-repo-url http://server.appstore.newaircloud.com/charts
+  - name: 拷贝tiller-rbac.yaml配置文件
+    tags: helm
+    template:
+      src: files/tiller-rbac.j2
+      dest: ./tiller-rbac.yaml
+  - name: 执行权限
+    tags: helm
+    shell: kubectl apply -f tiller-rbac.yaml && sleep 4
+  - name: 修改权限
+    tags: helm
+    shell: kubectl patch deploy --namespace kube-system tiller-deploy -p '{"spec":{"template":{"spec":{"serviceAccount":"tiller"}}}}'
+  - name: 等待tiller启动
+    tags: helm,helm-wait
+    shell: kubectl get pods -n kube-system | grep tiller | grep -c Running
+    register: helm_result
+    until: helm_result.stdout >= "1"
+    retries: 9999
+    delay: 5
+
+#安装elk
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: 拷贝elk配置文件
+    tags: elk
+    copy:
+      src: files/elk-all.yaml
+      dest: .
+  - name: 安装elk
+    tags: elk
+    shell: kubectl apply -f elk-all.yaml
+
+#创建命名空间
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: 拷贝命名空间配置文件
+    tags: namespaces
+    copy: src=files/clouder-namespaces.yaml dest=.
+  - name: 创建命名空间
+    tags: namespaces
+    shell: kubectl apply -f ./clouder-namespaces.yaml
+    ignore_errors: yes
+
+#安装微服务，并等待微服务启动
+#--------------------------------------------------------------------
+- hosts: ctrl
+  tasks:
+  - name: 安装微服务，并等待微服务启动…………
+    tags: service-governance
+    shell: "helm repo update && \
+            helm install stable/service-governance \
+            --name service-governance --namespace service-governance \
+            --set \
+            dockerRepo.value={{ ali_cust }},\
+            dockerRegistrySecret.value={{ docker_registry }}"
+  - shell: sleep 1
+  - name: 等待微服务启动
+    tags: service-governance
+    shell: kubectl get pods -n service-governance | grep -wc '0/1'
+    register: service_governance_result
+    until: service_governance_result.stdout == "0"
+    retries: 9999
+    delay: 5
+    ignore_errors: yes
+
+#安装租户管理平台
+#--------------------------------------------------------------------
+- hosts: ctrl
+  tasks:
+  - name: 创建api_server_token变量
+    tags: clouder
+    shell: v=`kubectl describe secret admin-user-token -n kube-system | grep token:` && v=`echo -n ${v#*token:} | base64 -w 0` && echo $v
+    register: api_server_token
+  - name: 创建v_mysql_host变量
+    tags: clouder
+    shell: echo -n "{{ mysql_host }}" | base64
+    register: v_mysql_host
+  - name: 创建v_mysql_root_password变量
+    tags: clouder
+    shell: echo -n "{{ mysql_root_password }}" | base64
+    register: v_mysql_root_password
+  - name: 创建v_redis_host变量
+    tags: clouder
+    shell: echo -n "{{ redis_host }}" | base64
+    register: v_redis_host
+  - name: 创建v_redis_password变量
+    tags: clouder
+    shell: echo -n "{{ redis_password }}" | base64
+    register: v_redis_password
+  - name: 创建v_docker_registry变量
+    tags: clouder
+    shell: echo -n "{{ docker_registry }}" | base64 -w 0
+    register: v_docker_registry
+  - name: 拷贝secrets配置文件
+    tags: clouder
+    template:
+      src: files/clouder-secrets.j2
+      dest: ./clouder-secrets.yaml
+  - name: 安装clouder的secrets
+    tags: clouder
+    shell: kubectl apply -f ./clouder-secrets.yaml
+  - name: 安装租户管理平台
+    tags: clouder
+    shell: "helm repo update && \
+            helm install stable/clouder \
+            --name=clouder --namespace=clouder \
+            --set \
+            dockerRepo.value={{ ali_cust }},\
+            apiServerIp.value={{ loadbalance_inside_ip }},\
+            helmUrl.value=http://server.appstore.newaircloud.com/charts,\
+            rootDomain.value={{ root_domain }},\
+            dockerRegistrySecret.value={{ docker_registry }}"
+
+#安装mediacloudbase
+#--------------------------------------------------------------------
+- hosts: ctrl
+  tasks:
+  - name: 安装mediacloudbase，并等待启动成功……
+    tags: mediacloudbase
+    shell: "helm repo update && \
+            helm install stable/mediacloudbase \
+            --name=mediacloudbase \
+            --namespace=mediacloudbase \
+            --set \
+            dockerRepo.value={{ ali_cust }},\
+            dockerRegistrySecret.value={{ docker_registry }}"
+  - shell: sleep 1
+  - name: 等待mediacloudbase启动
+    tags: mediacloudbase
+    shell: kubectl get pods -n mediacloudbase | grep '0/1' -wc
+    register: mediacloudbase_result
+    until: mediacloudbase_result.stdout == "0"
+    retries: 9999
+    delay: 5
+    ignore_errors: yes
+
+#安装mediacloudrr
+#--------------------------------------------------------------------
+- hosts: ctrl
+  tasks:
+  - name: 安装mediacloudrr
+    tags: mediacloudrr
+    shell: "helm repo update && \
+            helm install stable/mediacloudrr \
+            --name=mediacloudrr \
+            --namespace=mediacloudrr \
+            --set \
+            rootDomain.value={{ root_domain }},\
+            dockerRepo.value={{ ali_cust }},\
+            mysqlHost.value={{ mysql_host }},\
+            mysqlRootPassword.value={{ mysql_root_password }},\
+            tenantDbUser.value=rr,\
+            tenantDbPassword.value=mediacloudrr,\
+            redisHost.value={{ redis_host }},\
+            redisPassword.value={{ redis_password }},\
+            dockerRegistrySecret.value={{ docker_registry }}"
