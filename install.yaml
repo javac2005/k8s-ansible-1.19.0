@@ -118,6 +118,7 @@
   - name: 清理未完成事务
     tags: prepare,prepare-docker
     shell: "yum-complete-transaction --cleanup-only"
+    when: check_docker.stdout == "0"
   - name: 安装docker-ce-17.03.2
     tags: prepare,prepare-docker
     yum: name={{ packages }} state=present
@@ -138,6 +139,14 @@
     copy: src=files/kubernetes.repo dest=/etc/yum.repos.d/
 - hosts: master,node
   tasks:
+  - name: 判断是否已安装k8s
+    tags: prepare,prepare-k8s
+    shell: "if systemctl list-unit-files | grep kubelet.service > /dev/null; then echo 1; else echo 0; fi;"
+    register: check_k8s
+  - name: 清理未完成事务
+    tags: prepare,prepare-k8s
+    shell: "yum-complete-transaction --cleanup-only"
+    when: check_k8s.stdout == "0"
   - name: 安装k8s
     tags: prepare,prepare-k8s
     yum: name={{ packages }} state=present
@@ -147,6 +156,7 @@
       - kubectl-1.17.2
       - kubeadm-1.17.2
       - kubernetes-cni-0.7.5
+    when: check_k8s.stdout == "0"
   - name: 开机启动kubelet
     tags: prepare,prepare-k8s
     shell: systemctl daemon-reload && systemctl enable kubelet
