@@ -194,14 +194,20 @@
     shell: echo 'KUBELET_EXTRA_ARGS="--eviction-hard=memory.available<2048Mi"' > /etc/sysconfig/kubelet
 - hosts: master[0]
   tasks:
-  - name: 为ctrl节点安装kubectl
+  - name: 为ctrl节点安装kubectl、kubeadm
     tags: prepare,ctrl-kubectl
-    fetch: src="/usr/bin/kubectl" dest="/usr/bin/kubectl" flat=yes
+    fetch: src="/usr/bin/{{ item }}" dest="/usr/bin/{{ item }}" flat=yes
+    with_items: 
+    - kubectl
+    - kubeadm
 - hosts: ctrl
   tasks:
-  - name: 修改kubectl权限
+  - name: 修改kubectl、kubeadm权限
     tags: prepare,ctrl-kubectl
-    file: path=/usr/bin/kubectl mode=0755
+    file: path=/usr/bin/{{ item }} mode=0755
+    with_items: 
+    - kubectl
+    - kubeadm
 
 #安装三个etcd
 #-------------------------------------------------------------------
