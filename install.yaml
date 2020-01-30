@@ -115,6 +115,9 @@
     tags: prepare,prepare-docker
     shell: "if systemctl list-unit-files | grep docker.service > /dev/null; then echo 1; else echo 0; fi;"
     register: check_docker
+  - name: 清理未完成事务
+    tags: prepare,prepare-docker
+    shell: "yum-complete-transaction --cleanup-only"
   - name: 安装docker-ce-17.03.2
     tags: prepare,prepare-docker
     yum: name={{ packages }} state=present
