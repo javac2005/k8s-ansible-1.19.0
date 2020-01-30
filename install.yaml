@@ -113,7 +113,7 @@
     when: check_docker_ce_repo.stdout == "0"
   - name: 判断是否已安装docker
     tags: prepare,prepare-docker
-    shell: "if systemctl list-unit-files | grep docker.service > /dev/null; then echo false; else echo true; fi;"
+    shell: "if systemctl list-unit-files | grep docker.service > /dev/null; then echo 1; else echo 0; fi;"
     register: check_docker
   - name: 安装docker-ce-17.03.2
     tags: prepare,prepare-docker
@@ -123,7 +123,7 @@
       - docker-ce-19.03.4
       - docker-ce-cli-19.03.4
       - containerd.io-1.2.10
-    when: check_docker
+    when: check_docker.stdout == "0"
   - name: 配置daemon.json
     tags: prepare,prepare-docker
     copy: src=files/daemon.json dest=/etc/docker/
