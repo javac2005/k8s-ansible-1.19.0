@@ -67,12 +67,12 @@
       - lvm2
   - name: 检查防火墙服务是否存在
     tags: prepare,prepare-env
-    shell: "if systemctl list-unit-files | grep firewalld > /dev/null; then echo true; else echo false; fi;"
+    shell: "if systemctl list-unit-files | grep firewalld > /dev/null; then echo 1; else echo 0; fi;"
     register: firewalld_exists
   - name: 关闭防火墙
     tags: prepare,prepare-env
     shell: "systemctl stop firewalld.service && systemctl disable firewalld.service"
-    when: firewalld_exists
+    when: firewalld_exists.stdout == "0"
   - name: 禁用selinux
     tags: prepare,prepare-env
     shell: "setenforce 0 && sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config"
