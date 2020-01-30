@@ -421,11 +421,6 @@
     file:
       path: /etc/cni/net.d/
       state: directory
-  - name: 拷贝flannel配置文件
-    tags: masters,flannel
-    copy:
-      src: files/10-flannel.conflist
-      dest: /etc/cni/net.d/
   - name: 创建证书文件目录
     tags: masters,masters-certs
     file:
