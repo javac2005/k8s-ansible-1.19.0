@@ -195,7 +195,7 @@
 - hosts: master[0]
   tasks:
   - name: 为ctrl节点安装kubectl、kubeadm
-    tags: prepare,ctrl-kubectl
+    tags: prepare,ctrl-kubectl-kubeadm
     fetch: src="/usr/bin/{{ item }}" dest="/usr/bin/{{ item }}" flat=yes
     with_items: 
     - kubectl
@@ -203,7 +203,7 @@
 - hosts: ctrl
   tasks:
   - name: 修改kubectl、kubeadm权限
-    tags: prepare,ctrl-kubectl
+    tags: prepare,ctrl-kubectl-kubeadm
     file: path=/usr/bin/{{ item }} mode=0755
     with_items: 
     - kubectl
