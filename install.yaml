@@ -469,3 +469,23 @@
   - name: 等待node启动，1分钟
     tags: node,node-wait
     shell: sleep 60
+
+#安装ingress
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: 拷贝配置文件
+    tags: ingress
+    template:
+      src: files/ingress-0.28.0.yaml
+      dest: ./ingress-0.28.0.yaml
+  - name: 执行安装ingress
+    tags: ingress
+    shell: kubectl apply -f ingress-0.21.0.yaml
+  - name: 等待ingress全部启动
+    tags: ingress,ingress-wait
+    shell: kubectl get pods -n ingress-nginx | grep nginx-ingress-controller | grep -c Running
+    register: ingress_result
+    until: ingress_result.stdout == "{{groups.node | length}}"
+    retries: 9999
+    delay: 5
