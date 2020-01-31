@@ -14,5 +14,5 @@ spec:
         paths:
         - path: /
           backend:
-            serviceName: kubernetes-dashboard
+            serviceName: dashboard-metrics-scraper
             servicePort: 8000
