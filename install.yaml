@@ -481,7 +481,7 @@
       dest: ./ingress-0.28.0.yaml
   - name: 执行安装ingress
     tags: ingress
-    shell: kubectl apply -f ingress-0.21.0.yaml
+    shell: kubectl apply -f ingress-0.28.0.yaml
   - name: 等待ingress全部启动
     tags: ingress,ingress-wait
     shell: kubectl get pods -n ingress-nginx | grep nginx-ingress-controller | grep -c Running
