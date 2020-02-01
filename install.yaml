@@ -477,11 +477,11 @@
   - name: 拷贝配置文件
     tags: ingress
     template:
-      src: files/ingress-0.28.0.yaml
-      dest: ./ingress-0.28.0.yaml
+      src: files/ingress-0.21.0.yaml
+      dest: ./ingress-0.21.0.yaml
   - name: 执行安装ingress
     tags: ingress
-    shell: kubectl apply -f ingress-0.28.0.yaml
+    shell: kubectl apply -f ingress-0.21.0.yaml
   - name: 等待ingress全部启动
     tags: ingress,ingress-wait
     shell: kubectl get pods -n ingress-nginx | grep nginx-ingress-controller | grep -c Running
@@ -493,21 +493,22 @@
 #安装dashboard
 #--------------------------------------------------------------------
 - hosts: master[0]
+  vars:
+    dashboards:
+    - dashboard-v2.0.0-rc3.yaml
+    - dashboard-rbac.yaml
+    - dashboard-ingress.yaml
   tasks:
   - name: 拷贝配置文件
     tags: dashboard
     template:
       src: "files/{{ item }}"
       dest: .
-    with_items:
-    - dashboard-v2.0.0-rc3.yaml
-    - dashboard-ingress.yaml
-  - name: 执行安装dashboard-v2.0.0-rc3.yaml
+    with_items: "{{ dashboards }}"
+  - name: 执行安装dashboard
     tags: dashboard
-    shell: kubectl apply -f dashboard-v2.0.0-rc3.yaml
-  - name: 执行安装dashboard-ingress.yaml
-    tags: dashboard
-    shell: kubectl apply -f dashboard-ingress.yaml
+    shell: kubectl apply -f {{ item }}
+    with_items: "{{ dashboards }}"
   - name: 等待dashboard启动
     tags: dashboard,dashboard-wait
     shell: kubectl get pods -n kubernetes-dashboard | grep kubernetes-dashboard | grep -c Running
