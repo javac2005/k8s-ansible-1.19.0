@@ -28,7 +28,7 @@
 # * 根域名，注意如果需要外网访问要写真实的外网域名
 root_domain="test.com"
 
-# * 负载均衡内网IP
+# * apiserver负载均衡（内网）IP
 loadbalance_inside_ip="192.168.0.24"
 
 # * 负载均衡公网IP，如果没有写负载均衡内网IP

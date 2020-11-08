@@ -180,7 +180,7 @@ spec:
           mountPath: /etc/kube-flannel/
       containers:
       - name: kube-flannel
-        image: quay.io/coreos/flannel:v0.13.0-rc2
+        image: "{{ k8s_repo }}/flannel:v0.13.0-rc2"
         command:
         - /opt/bin/flanneld
         args:

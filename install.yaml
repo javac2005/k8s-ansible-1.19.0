@@ -5,6 +5,7 @@
   - name: 更新系统
     tags: update
     yum: name=* state=latest
+    ignore_errors: yes
 #准备，安装：必要软件、docker、k8s 
 #--------------------------------------------------------------------
 - hosts: all
@@ -21,7 +22,6 @@
       - bash-completion
       - lrzsz
       - unzip
-      - bridge-utils.x86_64
       - yum-utils
       - device-mapper-persistent-data
       - lvm2
@@ -35,7 +35,11 @@
     when: firewalld_exists.stdout == "1"
   - name: 禁用selinux
     tags: prepare,prepare-env
-    shell: "setenforce 0 && sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config"
+    shell: "setenforce 0 || 0"
+    ignore_errors: yes
+  - name: 禁用selinux
+    tags: prepare,prepare-env
+    shell: "sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config"
   - name: 禁用swap
     tags: prepare,prepare-env
     shell: swapoff -a
@@ -72,9 +76,14 @@
     tags: prepare,prepare-docker
     shell: "if systemctl list-unit-files | grep docker.service > /dev/null; then echo 1; else echo 0; fi;"
     register: check_docker
-  - name: 清理未完成事务
+  - name: 清理未完成事务，防止有未完成的安装任务造成等待
     tags: prepare,prepare-docker
-    shell: "yum-complete-transaction --cleanup-only"
+    shell: "yum-complete-transaction --cleanup-only || 0"
+    when: check_docker.stdout == "0"
+    ignore_errors: yes
+  - name: 安装containerd.io-1.2.6，因为docker-ce要求containerd版本大于1.2.2
+    tags: prepare,prepare-docker
+    yum: name=https://pubsrc.oss-cn-beijing.aliyuncs.com/containerd.io-1.2.6-3.3.el7.x86_64.rpm disable_gpg_check=yes state=present
     when: check_docker.stdout == "0"
   - name: 安装docker-ce-19.03.4
     tags: prepare,prepare-docker
@@ -83,7 +92,6 @@
       packages:
       - docker-ce-19.03.4
       - docker-ce-cli-19.03.4
-      - containerd.io-1.2.10
     when: check_docker.stdout == "0"
   - name: 配置daemon.json
     tags: prepare,prepare-docker
@@ -94,16 +102,15 @@
   - name: 配置k8s源
     tags: prepare,prepare-k8s
     copy: src=files/kubernetes.repo dest=/etc/yum.repos.d/
-- hosts: master,node
-  tasks:
   - name: 判断是否已安装k8s
     tags: prepare,prepare-k8s
     shell: "if systemctl list-unit-files | grep kubelet.service > /dev/null; then echo 1; else echo 0; fi;"
     register: check_k8s
-  - name: 清理未完成事务
+  - name: 清理未完成事务，防止有未完成的安装任务造成等待
     tags: prepare,prepare-k8s
     shell: "yum-complete-transaction --cleanup-only"
     when: check_k8s.stdout == "0"
+    ignore_errors: yes
   - name: 安装k8s
     tags: prepare,prepare-k8s
     yum: name={{ packages }} state=present
@@ -117,54 +124,44 @@
   - name: 开机启动kubelet
     tags: prepare,prepare-k8s
     shell: systemctl daemon-reload && systemctl enable kubelet
-  - name: 拉取k8s必要镜像
-    tags: prepare,prepare-images
-    shell: "docker pull {{ google_repo }}/{{ item }}"
-    with_items: 
-    - kube-proxy:v1.19.0
-    - kube-apiserver:v1.19.0
-    - kube-controller-manager:v1.19.0
-    - kube-scheduler:v1.19.0
-    - coredns:1.7.0
-    - pause:3.2
-  - name: 拉取flannel镜像
-    tags: prepare,flannel,flannel-images
-    shell: "docker pull {{ k8s_repo }}/{{ item }}"
-    with_items: 
-    - flannel:v0.13.0-rc2
-- hosts: etcd
+- hosts: master
   tasks:
-  - name: 拉取etcd镜像
-    tags: prepare,prepare-images
-    shell: "docker pull {{ google_repo }}/etcd:3.4.13-0"
+  - name: 配置master的host：多个master负载均衡（master）
+    tags: loadbalance-master
+    lineinfile:
+      path: /etc/hosts
+      line: "{{ groups.master[0] }} apiserver.{{ root_domain }}"
+- hosts: node,ctrl
+  tasks:
+  - name: 配置node的host：多个master负载均衡
+    tags: loadbalance-nodes
+    lineinfile:
+      path: /etc/hosts
+      line: "{{ loadbalance_inside_ip }} apiserver.{{ root_domain }}"
 #安装三个etcd
 #-------------------------------------------------------------------
 - hosts: ctrl
   vars:
     etcds:
-    - {"path":"/tmp/etcd/etcd0","name":"etcd0","host":"{{ groups.etcd[0] }}"}
-    - {"path":"/tmp/etcd/etcd1","name":"etcd1","host":"{{ groups.etcd[1] }}"}
-    - {"path":"/tmp/etcd/etcd2","name":"etcd2","host":"{{ groups.etcd[2] }}"}
+    - {"path":"/data/etcd/etcd0","name":"etcd0","host":"{{ groups.etcd[0] }}"}
+    - {"path":"/data/etcd/etcd1","name":"etcd1","host":"{{ groups.etcd[1] }}"}
+    - {"path":"/data/etcd/etcd2","name":"etcd2","host":"{{ groups.etcd[2] }}"}
   tasks:
-  - name: 删除目录 /etc/kubernetes、/tmp/etcd
+  - name: 先删除目录，防止多次安装的残留
     tags: etcd,etcd-dirs
     file:
       path: "{{ item }}"
       state: absent
     with_items:
     - /etc/kubernetes
-    - /tmp/etcd
-  - name: 创建目录 /tmp/etcd/xxx
+    - /data/etcd
+    - /var/lib/etcd
+  - name: 创建etcd证书目录 /data/etcd/[nodeName]
     tags: etcd,etcd-dirs
     file:
       path: "{{ item.path }}"
       state: directory
     with_items: "{{ etcds }}"
-  - name: 创建k8s的config配置文件目录 /root/.kube
-    tags: etcd,etcd-ctrl-kubeconfig
-    file:
-      path: /root/.kube
-      state: directory
   - name: 生成配置文件
     tags: etcd,etcd-yaml
     template:
@@ -174,7 +171,7 @@
   - name: 生成ca证书
     tags: etcd,etcd-ca
     shell: "kubeadm init phase certs etcd-ca"
-  - name: 生成其他证书
+  - name: 生成etcd其他证书
     tags: etcd,etcd-certs
     shell: "kubeadm init phase certs etcd-server --config={{ item.path }}/etcd.yaml &&\ 
             kubeadm init phase certs etcd-peer --config={{ item.path }}/etcd.yaml &&\ 
@@ -183,3 +180,202 @@
             cp -R /etc/kubernetes/pki {{ item.path }} &&\ 
             find /etc/kubernetes/pki -not -name ca.crt -not -name ca.key -type f -delete"
     with_items: "{{ etcds }}"
+- hosts: etcd
+  tasks:
+  - name: 先删除容器，防止多次安装的残留
+    tags: etcd,etcd-delete-etcd
+    shell: "docker rm -vf etcd"
+    ignore_errors: yes
+  - name: 拷贝证书文件
+    tags: etcd,etcd-copy-certs
+    copy:
+      src: "/data/etcd/{{ hostname }}/pki/"
+      dest: /etc/kubernetes/pki
+  - name: 启动etcd的docker容器
+    tags: etcd,etcd-run
+    shell: "docker run --name etcd --restart always -d -p 2379:2379 -p 2380:2380 \
+            -v /var/lib/etcd/:/var/lib/etcd/ \
+            -v /etc/kubernetes/:/etc/kubernetes/ \
+            -v /etc/localtime:/etc/localtime \
+            {{ google_repo }}/etcd:3.4.13-0 etcd \
+            --advertise-client-urls=https://{{ inventory_hostname }}:2379 \
+            --initial-advertise-peer-urls=https://{{ inventory_hostname }}:2380 \
+            --initial-cluster='{{ hostvars[groups.etcd[0]]['hostname'] }}=https://{{ groups.etcd[0] }}:2380,{{ hostvars[groups.etcd[1]]['hostname'] }}=https://{{ groups.etcd[1] }}:2380,{{ hostvars[groups.etcd[2]]['hostname'] }}=https://{{ groups.etcd[2] }}:2380' \
+            --initial-cluster-state=new \
+            --listen-client-urls=https://0.0.0.0:2379 \
+            --listen-peer-urls=https://0.0.0.0:2380 \
+            --name={{ hostname }} \
+            --client-cert-auth=true \
+            --data-dir=/var/lib/etcd \
+            --cert-file=/etc/kubernetes/pki/etcd/server.crt \
+            --key-file=/etc/kubernetes/pki/etcd/server.key \
+            --peer-cert-file=/etc/kubernetes/pki/etcd/peer.crt \
+            --peer-client-cert-auth=true \
+            --peer-key-file=/etc/kubernetes/pki/etcd/peer.key \
+            --peer-trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt \
+            --snapshot-count=10000 \
+            --trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt"
+- hosts: etcd
+  tasks:
+  - name: 检查etcd集群的状态
+    tags: etcd,etcd-check
+    shell: "docker run --rm -it \
+            --net host \
+            -v /etc/kubernetes:/etc/kubernetes registry.aliyuncs.com/google_containers/etcd:3.4.13-0 etcdctl \
+            --cert /etc/kubernetes/pki/etcd/peer.crt \
+            --key /etc/kubernetes/pki/etcd/peer.key \
+            --cacert /etc/kubernetes/pki/etcd/ca.crt \
+            --endpoints https://{{ inventory_hostname }}:2379 endpoint health --cluster"
+    register: checkMsg
+- hosts: etcd
+  tasks:
+  - name: 打印etcd集群状态检查结果，三个节点都为“is healthy”则正常
+    tags: etcd,etcd-check,etcd-check-log
+    debug: var=checkMsg.stdout
+    with_items: checkMsg.results
+#初始化第一个master节点
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: 拷贝kubeadm-config.yaml配置文件
+    tags: master,master-copy-config
+    template:
+      src: files/kubeadm-config.yaml
+      dest: ./kubeadm-config.yaml
+  - name: 创建etcd证书目录
+    tags: master,master-copy-etcd
+    file:
+      path: /etc/kubernetes/pki/etcd
+      state: directory
+  - name: 拷贝etcd证书
+    tags: master,master-copy-etcd
+    copy:
+      src: "/data/etcd/etcd0/{{ item }}"
+      dest: "/etc/kubernetes/{{ item }}"
+    with_items:
+    - pki/etcd/ca.crt
+    - pki/apiserver-etcd-client.crt
+    - pki/apiserver-etcd-client.key
+  - name: 初始化第一个master
+    tags: master,master-init
+    shell: kubeadm init --config=kubeadm-config.yaml
+  - name: 配置kubectl的执行环境
+    tags: master,master-env
+    shell: "mkdir -p /root/.kube &&\ 
+           rm -rf /root/.kube/config &&\ 
+           cp /etc/kubernetes/admin.conf /root/.kube/config"
+  #安装flannel网络
+  - name: 拷贝kube-flannel.yaml文件
+    tags: master,flannel
+    template:
+      src: files/kube-flannel.yaml
+      dest: ./kube-flannel.yaml
+  - name: 安装flannel网络
+    tags: master,flannel
+    shell: kubectl apply -f kube-flannel.yaml
+  - name: 从master[0]拷贝k8s的config
+    tags: master,master-admin
+    fetch: src=/etc/kubernetes/admin.conf dest=/root/.kube/config flat=yes
+  - name: 从master[0]拷贝证书
+    tags: master,master-backup
+    fetch: src="/etc/kubernetes/{{ item }}" dest="/data/kubernetes/{{ item }}" flat=yes
+    with_items:
+    - "pki/ca.crt"
+    - "pki/ca.key"
+    - "pki/sa.key"
+    - "pki/sa.pub"
+    - "pki/front-proxy-ca.crt"
+    - "pki/front-proxy-ca.key"
+    - "pki/apiserver-etcd-client.key"
+    - "pki/apiserver-etcd-client.crt"
+    - "pki/etcd/ca.crt"
+    - "admin.conf"
+  - name: 等待第一个master启动
+    tags: master,master-wait
+    shell: kubectl get pods --all-namespaces | grep -c Running
+    register: master_result
+    until: master_result.stdout >= "7"
+    retries: 9999
+    delay: 5
+#获得加入集群的token
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: 删除所有token
+    tags: token
+    shell: for token in $(kubeadm token list | tail -n +2 | awk '{print $1}') ; do kubeadm token delete $token; done
+  - name: 创建token
+    tags: token
+    shell: kubeadm token create
+  - name: 获得token，赋给master-token变量
+    tags: token
+    shell: "kubeadm token list | tail -n +2 | head -n 1 | awk '{print $1}'"
+    register: master_token
+  - name: 获得加入集群的discovery-token-ca-cert-hash并赋值给discovery-token-ca-cert-hash变量
+    tags: token
+    shell: "openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | \
+            openssl dgst -sha256 -hex | sed 's/^.* //'"
+    register: discovery_token
+
+#其他master加入集群
+#--------------------------------------------------------------------
+- hosts: master[1],master[2]
+  tasks:
+  - name: 设置master_token变量
+    tags: masters,masters-token
+    set_fact: master_token="{{ hostvars[groups.master[0]]['master_token'] }}"
+  - name: 设置discovery_token变量
+    tags: masters,masters-token
+    set_fact: discovery_token="{{ hostvars[groups.master[0]]['discovery_token'] }}"
+  - name: 创建证书文件目录
+    tags: masters,masters-certs
+    file:
+      path: /etc/kubernetes/pki/etcd/
+      state: directory
+  - name: 拷贝证书文件
+    tags: masters,masters-certs
+    copy:
+      src: "/data/kubernetes/{{ item }}"
+      dest: "/etc/kubernetes/{{ item }}"
+    with_items:
+    - "pki/ca.crt"
+    - "pki/ca.key"
+    - "pki/sa.key"
+    - "pki/sa.pub"
+    - "pki/front-proxy-ca.crt"
+    - "pki/front-proxy-ca.key"
+    - "pki/apiserver-etcd-client.key"
+    - "pki/apiserver-etcd-client.crt"
+    - "pki/etcd/ca.crt"
+    - "admin.conf"
+  - name: master加入集群
+    tags: masters,masters-join
+    shell: "kubeadm join {{ groups.master[0] }}:6443 \
+            --token {{ master_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ discovery_token.stdout }} \
+            --control-plane"
+- hosts: master[0]
+  tasks:
+  - name: 等待其他master启动
+    tags: masters,masters-wait
+    shell: kubectl get pods --all-namespaces | grep -c Running
+    register: masters_result
+    until: masters_result.stdout >= "17"
+    retries: 9999
+    delay: 5
+#node加入集群
+#--------------------------------------------------------------------
+- hosts: node
+  tasks:
+  - name: 设置master_token变量
+    tags: nodes,node-token
+    set_fact: master_token="{{ hostvars[groups.master[0]]['master_token'] }}"
+  - name: 设置discovery_token变量
+    tags: nodes,node-token
+    set_fact: discovery_token="{{ hostvars[groups.master[0]]['discovery_token'] }}"
+  - name: node加入集群
+    tags: nodes,node-join
+    shell: "kubeadm join {{ loadbalance_inside_ip }}:6443 \
+            --token {{ master_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ discovery_token.stdout }}"
+  - name: 等待node启动，1分钟
+    tags: nodes,node-wait
+    shell: sleep 60
