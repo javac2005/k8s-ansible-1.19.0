@@ -10,7 +10,7 @@ yum -y install git
 yum install -y ansible
 
 #配置私钥
-cat > ~/.ssh/id_rsa.pub <<EOF
+cat > ~/.ssh/id_rsa <<EOF
 -----BEGIN RSA PRIVATE KEY-----
 MIIEogIBAAKCAQEApRDpw5Ok+E ……
 -----END RSA PRIVATE KEY-----
