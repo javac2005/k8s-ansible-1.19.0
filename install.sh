@@ -1,20 +1,33 @@
 #!/bin/bash
-cat <<EOF >  /etc/yum.repos.d/ansible
-[epel]
-name = all source for ansible
-baseurl = https://mirrors.aliyun.com/epel/7/x86_64/
-enabled = 1
-gpgcheck = 0
-[ansible]
-name = all source for ansible
-baseurl = http://mirrors.aliyun.com/centos/7.5.1804/os/x86_64/
-enabled = 1
-gpgcheck = 0
+
+#更新
+yum -y update
+
+#安装git
+yum -y install git
+
+#安装ansible
+yum install -y ansible
+
+#配置私钥
+cat > ~/.ssh/id_rsa.pub <<EOF
+-----BEGIN RSA PRIVATE KEY-----
+MIIEogIBAAKCAQEApRDpw5Ok+E ……
+-----END RSA PRIVATE KEY-----
 EOF
 
-echo "安装ansible和git" 
-yum clean all && yum install -y ansible && yum -y install git
-sed -i 's/#host_key_checking/host_key_checking/g' /etc/ansible/ansible.cfg
+#修改私钥权限
+chmod 600 ~/.ssh/id_rsa
 
-echo "git clone安装脚本"
-git clone https://github.com/javac2005/k8s-install-1.17.2.git
+#配置公钥
+cat > ~/.ssh/id_rsa.pub <<EOF
+ssh-rsa AAAAB3NzaC1yc2EAAAAD ……
+EOF
+
+#修改公钥权限
+chmod 600 ~/.ssh/id_rsa.pub
+
+#git clone安装脚本
+git clone https://github.com/javac2005/ansible-k8s-1.19.0.git
+
+cd ansible-k8s-1.19.0

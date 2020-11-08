@@ -1,49 +1,10 @@
-#配置免密登录、主机名、hosts
+#更新
 #--------------------------------------------------------------------
-- hosts: ctrl
-  connection: local
-  tasks:
-  - name: 检查秘钥是否存在
-    tags: ssh,ssh-keygen
-    local_action: stat path=/root/.ssh/id_rsa
-    register: stat_result
-  - name: 如果不存在则创建秘钥
-    tags: ssh,ssh-keygen
-    command: ssh-keygen -t rsa -P "" -f /root/.ssh/id_rsa
-    when: stat_result.stat.exists == false
 - hosts: all
   tasks:
-  - name: 分发秘钥
-    tags: ssh,ssh-auth-all
-    authorized_key:
-      user: root
-      key: "{{ lookup('file', '/root/.ssh/id_rsa.pub') }}"
-      state: present
-      exclusive: yes
-  - name: 修改主机名
-    tags: ssh,ssh-auth-all
-    hostname:
-      name: "{{ hostname }}"
-  - name: 配置hosts
-    tags: ssh,ssh-auth-all
-    lineinfile:
-      path: /etc/hosts
-      line: "{{inventory_hostname}} {{hostname}}"
-- hosts: master
-  tasks:
-  - name: 配置master的host：多个master负载均衡（master）
-    tags: ssh,ssh-master
-    lineinfile:
-      path: /etc/hosts
-      line: "{{ groups.master[0] }} apiserver.{{ root_domain }}"
-- hosts: node,ctrl
-  tasks:
-  - name: 配置node的host：多个master负载均衡
-    tags: ssh,ssh-node
-    lineinfile:
-      path: /etc/hosts
-      line: "{{ loadbalance_inside_ip }} apiserver.{{ root_domain }}"
-
+  - name: 更新系统
+    tags: update
+    yum: name=* state=latest
 #准备，安装：必要软件、docker、k8s 
 #--------------------------------------------------------------------
 - hosts: all
@@ -57,7 +18,6 @@
       - epel-release
       - net-tools
       - wget
-      - ntpdate
       - bash-completion
       - lrzsz
       - unzip
@@ -79,7 +39,7 @@
   - name: 禁用swap
     tags: prepare,prepare-env
     shell: swapoff -a
-  - name: 开机启动禁用swap
+  - name: 开机启动禁用swap交换区
     tags: prepare,prepare-env
     shell: "sed -i 's/^.*swap*/#&/g' /etc/fstab"
   - name: 加载bridge、br_netfilter模块，并设置开机启动
@@ -88,7 +48,7 @@
             touch /etc/modules-load.d/kubernetes.conf &&\ 
             echo 'bridge' > /etc/modules-load.d/kubernetes.conf &&\ 
             echo 'br_netfilter' >> /etc/modules-load.d/kubernetes.conf"
-  - name: 设置iptables转发规则，禁用交换区
+  - name: 设置iptables转发规则
     tags: prepare,prepare-env
     sysctl:
       name: "{{ item.name }}"
@@ -100,9 +60,6 @@
     - {"name":"net.bridge.bridge-nf-call-iptables", "value":1}
     - {"name":"net.bridge.bridge-nf-call-ip6tables","value":1}
     - {"name":"vm.swappiness","value":0}
-  - name: 同步时间
-    tags: prepare,prepare-env
-    shell: rm -rf /etc/localtime && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && ntpdate -u cn.pool.ntp.org
   - name: 判断是否配置过docker-ce.repo
     tags: prepare,prepare-docker
     shell: ls /etc/yum.repos.d | grep docker-ce.repo || echo 0
@@ -119,7 +76,7 @@
     tags: prepare,prepare-docker
     shell: "yum-complete-transaction --cleanup-only"
     when: check_docker.stdout == "0"
-  - name: 安装docker-ce-17.03.2
+  - name: 安装docker-ce-19.03.4
     tags: prepare,prepare-docker
     yum: name={{ packages }} state=present
     vars:
@@ -152,10 +109,10 @@
     yum: name={{ packages }} state=present
     vars:
       packages:
-      - kubelet-1.17.2
-      - kubectl-1.17.2
-      - kubeadm-1.17.2
-      - kubernetes-cni-0.7.5
+      - kubelet-1.19.0-0
+      - kubectl-1.19.0-0
+      - kubeadm-1.19.0-0
+      - kubernetes-cni-0.8.7-0
     when: check_k8s.stdout == "0"
   - name: 开机启动kubelet
     tags: prepare,prepare-k8s
@@ -164,51 +121,22 @@
     tags: prepare,prepare-images
     shell: "docker pull {{ google_repo }}/{{ item }}"
     with_items: 
-    - kube-proxy:v1.17.2
-    - kube-apiserver:v1.17.2
-    - kube-controller-manager:v1.17.2
-    - kube-scheduler:v1.17.2
-    - coredns:1.6.5
-    - pause:3.1
+    - kube-proxy:v1.19.0
+    - kube-apiserver:v1.19.0
+    - kube-controller-manager:v1.19.0
+    - kube-scheduler:v1.19.0
+    - coredns:1.7.0
+    - pause:3.2
   - name: 拉取flannel镜像
     tags: prepare,flannel,flannel-images
-    shell: "docker pull {{ quay_repo }}/coreos/{{ item }}"
+    shell: "docker pull {{ k8s_repo }}/{{ item }}"
     with_items: 
-    - flannel:v0.11.0-s390x
-    - flannel:v0.11.0-ppc64le
-    - flannel:v0.11.0-arm64
-    - flannel:v0.11.0-arm
-    - flannel:v0.11.0-amd64
+    - flannel:v0.13.0-rc2
 - hosts: etcd
   tasks:
   - name: 拉取etcd镜像
     tags: prepare,prepare-images
-    shell: "docker pull {{ google_repo }}/etcd:3.4.3-0"
-- hosts: node
-  tasks:
-  - name: 拉取ingress镜像
-    tags: prepare,prepare-images
-    shell: "docker pull {{ quay_repo }}/kubernetes-ingress-controller/nginx-ingress-controller:0.28.0"
-  - name: 配置节点最小剩余内存2G，避免内存跑满
-    tags: prepare,prepare-k8s,prepare-k8s-memory
-    shell: echo 'KUBELET_EXTRA_ARGS="--eviction-hard=memory.available<2048Mi"' > /etc/sysconfig/kubelet
-- hosts: master[0]
-  tasks:
-  - name: 为ctrl节点安装kubectl、kubeadm
-    tags: prepare,ctrl-kubectl-kubeadm
-    fetch: src="/usr/bin/{{ item }}" dest="/usr/bin/{{ item }}" flat=yes
-    with_items: 
-    - kubectl
-    - kubeadm
-- hosts: ctrl
-  tasks:
-  - name: 修改kubectl、kubeadm权限
-    tags: prepare,ctrl-kubectl-kubeadm
-    file: path=/usr/bin/{{ item }} mode=0755
-    with_items: 
-    - kubectl
-    - kubeadm
-
+    shell: "docker pull {{ google_repo }}/etcd:3.4.13-0"
 #安装三个etcd
 #-------------------------------------------------------------------
 - hosts: ctrl
@@ -255,264 +183,3 @@
             cp -R /etc/kubernetes/pki {{ item.path }} &&\ 
             find /etc/kubernetes/pki -not -name ca.crt -not -name ca.key -type f -delete"
     with_items: "{{ etcds }}"
-  - name: 删除/etc/kubernetes
-    tags: etcd,etcd-delete-kubernetes
-    file:
-      path: /etc/kubernetes
-      state: absent
-  - name: 删除/data/backup/etcd
-    tags: etcd,etcd-backup
-    file:
-      path: /data/backup/etcd
-      state: absent
-  - name: 备份证书
-    tags: etcd,etcd-backup
-    copy:
-      src: /tmp/etcd/
-      dest: /data/backup/etcd
-- hosts: etcd
-  tasks:
-  - name: 删除/etc/kubernetes
-    tags: etcd,etcd-create-kubernetes
-    file:
-      path: /etc/kubernetes
-      state: absent
-  - name: 拷贝证书文件
-    tags: etcd,etcd-copy-certs
-    copy:
-      src: "/tmp/etcd/{{ hostname }}/pki/"
-      dest: /etc/kubernetes/pki
-  - name: 删除 ca.key
-    tags: etcd,etcd-delete-ca
-    file:
-      path: /etc/kubernetes/pki/etcd/ca.key
-      state: absent
-  - name: 删除容器
-    tags: etcd,etcd-delete-etcd
-    shell: "docker rm -vf etcd"
-    ignore_errors: yes
-  - name: 删除/var/lib/etcd
-    tags: etcd,etcd-delete-etcd
-    file:
-      path: /var/lib/etcd
-      state: absent
-    ignore_errors: yes
-  - name: 启动docker容器
-    tags: etcd,etcd-run
-    shell: "docker run --name etcd --restart always -d -p 2379:2379 -p 2380:2380 \
-            -v /var/lib/etcd/:/var/lib/etcd/ \
-            -v /etc/kubernetes/:/etc/kubernetes/ \
-            {{ google_repo }}/etcd:3.4.3-0 etcd \
-            --advertise-client-urls=https://{{ inventory_hostname }}:2379 \
-            --initial-advertise-peer-urls=https://{{ inventory_hostname }}:2380 \
-            --initial-cluster='{{ hostvars[groups.etcd[0]]['hostname'] }}=https://{{ groups.etcd[0] }}:2380,{{ hostvars[groups.etcd[1]]['hostname'] }}=https://{{ groups.etcd[1] }}:2380,{{ hostvars[groups.etcd[2]]['hostname'] }}=https://{{ groups.etcd[2] }}:2380' \
-            --initial-cluster-state=new \
-            --listen-client-urls=https://0.0.0.0:2379 \
-            --listen-peer-urls=https://0.0.0.0:2380 \
-            --name={{ hostname }} \
-            --client-cert-auth=true \
-            --data-dir=/var/lib/etcd \
-            --cert-file=/etc/kubernetes/pki/etcd/server.crt \
-            --key-file=/etc/kubernetes/pki/etcd/server.key \
-            --peer-cert-file=/etc/kubernetes/pki/etcd/peer.crt \
-            --peer-client-cert-auth=true \
-            --peer-key-file=/etc/kubernetes/pki/etcd/peer.key \
-            --peer-trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt \
-            --snapshot-count=10000 \
-            --trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt"
-
-#初始化第一个master节点
-#--------------------------------------------------------------------
-- hosts: master[0]
-  tasks:
-  - name: 拷贝kubeadm-config.yaml配置文件
-    tags: master,master-copy-config
-    template:
-      src: files/kubeadm-config.yaml
-      dest: ./kubeadm-config.yaml
-  - name: 创建etcd证书目录
-    tags: master,master-copy-etcd
-    file:
-      path: /etc/kubernetes/pki/etcd
-      state: directory
-  - name: 拷贝etcd证书
-    tags: master,master-copy-etcd
-    copy:
-      src: "/data/backup/etcd/etcd0/{{ item }}"
-      dest: "/etc/kubernetes/{{ item }}"
-    with_items:
-    - pki/etcd/ca.crt
-    - pki/apiserver-etcd-client.crt
-    - pki/apiserver-etcd-client.key
-  - name: 初始化第一个master
-    tags: master,master-init
-    shell: kubeadm init --config=kubeadm-config.yaml
-  - name: 配置kubectl的执行环境
-    tags: master,master-env
-    shell: "mkdir -p /root/.kube &&\ 
-           rm -rf /root/.kube/config &&\ 
-           cp /etc/kubernetes/admin.conf /root/.kube/config"
-  #安装flannel网络
-  - name: 拷贝kube-flannel.yaml文件
-    tags: master,flannel
-    template:
-      src: files/kube-flannel.yaml
-      dest: ./kube-flannel.yaml
-  - name: 安装flannel网络
-    tags: master,flannel
-    shell: kubectl apply -f kube-flannel.yaml
-  - name: 从master[0]拷贝k8s的config
-    tags: master,master-admin
-    fetch: src=/etc/kubernetes/admin.conf dest=/root/.kube/config flat=yes
-  - name: 从master[0]拷贝证书
-    tags: master,master-backup
-    fetch: src="/etc/kubernetes/{{ item }}" dest="/data/backup/kubernetes/{{ item }}" flat=yes
-    with_items:
-    - "pki/ca.crt"
-    - "pki/ca.key"
-    - "pki/sa.key"
-    - "pki/sa.pub"
-    - "pki/front-proxy-ca.crt"
-    - "pki/front-proxy-ca.key"
-    - "pki/apiserver-etcd-client.key"
-    - "pki/apiserver-etcd-client.crt"
-    - "pki/etcd/ca.crt"
-    - "admin.conf"
-  - name: 等待第一个master启动
-    tags: master,master-wait
-    shell: kubectl get pods --all-namespaces | grep -c Running
-    register: master_result
-    until: master_result.stdout >= "7"
-    retries: 9999
-    delay: 5
-
-#获得加入集群的token
-#--------------------------------------------------------------------
-- hosts: master[0]
-  tasks:
-  - name: 删除所有token
-    tags: token
-    shell: for token in $(kubeadm token list | tail -n +2 | awk '{print $1}') ; do kubeadm token delete $token; done
-  - name: 创建token
-    tags: token
-    shell: kubeadm token create
-  - name: 获得token，赋给master-token变量
-    tags: token
-    shell: "kubeadm token list | tail -n +2 | head -n 1 | awk '{print $1}'"
-    register: master_token
-  - name: 获得加入集群的discovery-token-ca-cert-hash并赋值给discovery-token-ca-cert-hash变量
-    tags: token
-    shell: "openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | \
-            openssl dgst -sha256 -hex | sed 's/^.* //'"
-    register: discovery_token
-
-#其他master加入集群
-#--------------------------------------------------------------------
-- hosts: master[1],master[2]
-  tasks:
-  - name: 设置master_token变量
-    tags: masters,masters-token
-    set_fact: master_token="{{ hostvars[groups.master[0]]['master_token'] }}"
-  - name: 设置discovery_token变量
-    tags: masters,masters-token
-    set_fact: discovery_token="{{ hostvars[groups.master[0]]['discovery_token'] }}"
-  - name: 创建证书文件目录
-    tags: masters,masters-certs
-    file:
-      path: /etc/kubernetes/pki/etcd/
-      state: directory
-  - name: 拷贝证书文件
-    tags: masters,masters-certs
-    copy:
-      src: "/data/backup/kubernetes/{{ item }}"
-      dest: "/etc/kubernetes/{{ item }}"
-    with_items:
-    - "pki/ca.crt"
-    - "pki/ca.key"
-    - "pki/sa.key"
-    - "pki/sa.pub"
-    - "pki/front-proxy-ca.crt"
-    - "pki/front-proxy-ca.key"
-    - "pki/apiserver-etcd-client.key"
-    - "pki/apiserver-etcd-client.crt"
-    - "pki/etcd/ca.crt"
-    - "admin.conf"
-  - name: master加入集群
-    tags: masters,masters-join
-    shell: "kubeadm join {{ groups.master[0] }}:6443 \
-            --token {{ master_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ discovery_token.stdout }} \
-            --control-plane"
-- hosts: master[0]
-  tasks:
-  - name: 等待其他master启动
-    tags: masters,masters-wait
-    shell: kubectl get pods --all-namespaces | grep -c Running
-    register: masters_result
-    until: masters_result.stdout >= "17"
-    retries: 9999
-    delay: 5
-
-#node加入集群
-#--------------------------------------------------------------------
-- hosts: node
-  tasks:
-  - name: 设置master_token变量
-    tags: node,node-token
-    set_fact: master_token="{{ hostvars[groups.master[0]]['master_token'] }}"
-  - name: 设置discovery_token变量
-    tags: node,node-token
-    set_fact: discovery_token="{{ hostvars[groups.master[0]]['discovery_token'] }}"
-  - name: node加入集群
-    tags: node,node-join
-    shell: "kubeadm join {{ loadbalance_inside_ip }}:6443 \
-            --token {{ master_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ discovery_token.stdout }}"
-  - name: 等待node启动，1分钟
-    tags: node,node-wait
-    shell: sleep 60
-
-#安装ingress
-#--------------------------------------------------------------------
-- hosts: master[0]
-  tasks:
-  - name: 拷贝配置文件
-    tags: ingress
-    template:
-      src: files/ingress-0.21.0.yaml
-      dest: ./ingress-0.21.0.yaml
-  - name: 执行安装ingress
-    tags: ingress
-    shell: kubectl apply -f ingress-0.21.0.yaml
-  - name: 等待ingress全部启动
-    tags: ingress,ingress-wait
-    shell: kubectl get pods -n ingress-nginx | grep nginx-ingress-controller | grep -c Running
-    register: ingress_result
-    until: ingress_result.stdout == "{{groups.node | length}}"
-    retries: 9999
-    delay: 5
-
-#安装dashboard
-#--------------------------------------------------------------------
-- hosts: master[0]
-  vars:
-    dashboards:
-    - dashboard-v2.0.0-rc3.yaml
-    - dashboard-rbac.yaml
-    - dashboard-ingress.yaml
-  tasks:
-  - name: 拷贝配置文件
-    tags: dashboard
-    template:
-      src: "files/{{ item }}"
-      dest: .
-    with_items: "{{ dashboards }}"
-  - name: 执行安装dashboard
-    tags: dashboard
-    shell: kubectl apply -f {{ item }}
-    with_items: "{{ dashboards }}"
-  - name: 等待dashboard启动
-    tags: dashboard,dashboard-wait
-    shell: kubectl get pods -n kubernetes-dashboard | grep kubernetes-dashboard | grep -c Running
-    register: dashboard_result
-    until: dashboard_result.stdout >= "1"
-    retries: 9999
-    delay: 5
