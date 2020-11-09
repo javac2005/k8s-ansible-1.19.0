@@ -111,6 +111,8 @@
     shell: "yum-complete-transaction --cleanup-only"
     when: check_k8s.stdout == "0"
     ignore_errors: yes
+- hosts: master,node
+  tasks:
   - name: 安装k8s
     tags: prepare,prepare-k8s
     yum: name={{ packages }} state=present
@@ -386,7 +388,7 @@
   - name: 等待node启动，1分钟
     tags: nodes,node-wait
     shell: sleep 60
-#安装ingress
+#安装ingress，dashboard
 #--------------------------------------------------------------------
 - hosts: master[0]
   vars:
