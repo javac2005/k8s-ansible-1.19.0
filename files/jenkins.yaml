@@ -42,6 +42,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: jenkins
+  namespace: kube-public
 ---
 apiVersion: apps/v1
 kind: Deployment
