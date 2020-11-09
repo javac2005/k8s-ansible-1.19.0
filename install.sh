@@ -11,9 +11,7 @@ yum install -y ansible
 
 #配置私钥
 cat > ~/.ssh/id_rsa <<EOF
------BEGIN RSA PRIVATE KEY-----
-MIIEogIBAAKCAQEApRDpw5Ok+E ……
------END RSA PRIVATE KEY-----
+#将私钥的内容全部粘贴到次数
 EOF
 
 #修改私钥权限
@@ -21,7 +19,7 @@ chmod 600 ~/.ssh/id_rsa
 
 #配置公钥
 cat > ~/.ssh/id_rsa.pub <<EOF
-ssh-rsa AAAAB3NzaC1yc2EAAAAD ……
+#将公钥的内容全部粘贴到次数
 EOF
 
 #修改公钥权限
