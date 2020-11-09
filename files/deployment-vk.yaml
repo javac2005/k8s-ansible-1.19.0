@@ -1,0 +1,76 @@
+#添加阿里云ECI，virtual-kubelet 
+kind: ServiceAccount
+metadata:
+  name: virtual-node-sa
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: virtual-node-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: virtual-node-sa
+    namespace: kube-system
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: virtual-node-controller
+  namespace: kube-system
+  labels:
+    app: virtual-node-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: virtual-node-controller
+  template:
+    metadata:
+      labels:
+        app: virtual-node-controller
+    spec:
+      serviceAccount: virtual-node-sa
+      containers:
+      - name: alicloud-virtual-kubelet
+        image: registry.cn-hangzhou.aliyuncs.com/acs/virtual-nodes-eci:v1.0.0.3-aliyun
+        imagePullPolicy: Always
+        args: ["--provider", "alibabacloud"]
+        env:
+        - name: KUBELET_PORT
+          value: "10250"
+        - name: VKUBELET_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: VKUBELET_TAINT_KEY
+          value: "virtual-kubelet.io/provider"
+        - name: VKUBELET_TAINT_VALUE
+          value: "alibabacloud"
+        - name: VKUBELET_TAINT_EFFECT
+          value: "NoSchedule"
+        - name: ECI_REGION
+           #Region信息，例如：华北2，对应RegionID cn-beijing（与ECS的一致）
+          value: ${aliyun_region_name}
+        - name: ECI_VPC
+          #专有网络的ID（与ECS的一致）
+          value: ${aliyun_vpc_id}
+        - name: ECI_VSWITCH
+          #交换机ID（与ECS的一致）
+          value: ${aliyun_vswitch_id}
+        - name: ECI_SECURITY_GROUP
+          #安全组ID（与ECS的一致）
+          value: ${aliyun_sg_id}
+        - name: ECI_ACCESS_KEY
+          #安全组ID（与ECS的一致）
+          value: ${aliyun_access_key}
+        - name: ECI_SECRET_KEY
+          #账号的AccessKey ID
+          value: ${aliyun_secret_key}
+        - name: ALIYUN_CLUSTERID
+          #账号的AccessKey Secret
+          value: ${custom_define_cluster_id}
