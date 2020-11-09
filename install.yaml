@@ -147,6 +147,13 @@
     - {"path":"/data/etcd/etcd1","name":"etcd1","host":"{{ groups.etcd[1] }}"}
     - {"path":"/data/etcd/etcd2","name":"etcd2","host":"{{ groups.etcd[2] }}"}
   tasks:
+  - name: 解决证书有效期为一年的问题
+    tags: etcd,etcd-kubeadm
+    shell: "rm -rf /usr/bin/kubeadm &&\ 
+            docker pull {{ k8s_repo }}/kubeadm:1.19.0 &&\
+            docker run --rm -v /tmp/kubeadm/:/tmp/kubeadm/ \
+            {{ k8s_repo }}/kubeadm:1.19.0 sh -c 'cp /kubeadm /tmp/kubeadm/' &&\ 
+            mv /tmp/kubeadm/kubeadm /usr/bin/ && chmod +x /usr/bin/kubeadm"
   - name: 先删除目录，防止多次安装的残留
     tags: etcd,etcd-dirs
     file:
