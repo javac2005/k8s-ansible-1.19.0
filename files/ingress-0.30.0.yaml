@@ -186,9 +186,9 @@ subjects:
     namespace: ingress-nginx
 
 ---
-#DaemonSet：官方原始文件使用的是deployment，replicate 为 1，这样将会在某一台节点上启动对应的nginx-ingress-controller pod。
-#外部流量访问至该节点，由该节点负载分担至内部的service。测试环境考虑防止单点故障，改为DaemonSet然后删掉replicate 
-#配合亲和性部署在制定节点上启动nginx-ingress-controller pod，确保有多个节点启动nginx-ingress-controller pod
+#DaemonSet：官方原始文件使用的是deployment，replicate 为 1
+#这样将会在所有node节点上启动对应的nginx-ingress-controller pod。
+#外部流量访问至节点，由节点负载分担至内部的service。
 #后续将这些节点加入到外部硬件负载均衡组实现高可用性
 apiVersion: apps/v1
 #kind: Deployment

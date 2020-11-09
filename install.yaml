@@ -379,3 +379,30 @@
   - name: 等待node启动，1分钟
     tags: nodes,node-wait
     shell: sleep 60
+#安装ingress
+#--------------------------------------------------------------------
+- hosts: master[0]
+  vars:
+    dashboardtemplates:
+    - "dashboard-2.0.4.yaml"
+    - "dashboard-rbac.yaml"
+    - "dashboard-ingress.yaml"
+  tasks:
+  - name: ingress配置文件
+    tags: ingress,ingress-templates
+    template:
+      src: files/ingress-0.30.0.yaml
+      dest: ./ingress-0.30.0.yaml
+  - name: 安装ingress
+    tags: ingress,ingress-install
+    shell: kubectl apply -f ingress-0.30.0.yaml
+  - name: dashboard配置文件
+    tags: dashboard,dashboard-templates
+    template:
+      src: files/{{ item }}
+      dest: ./{{ item }}
+    with_items: "{{ dashboardtemplates }}"
+  - name: 安装dashboard
+    tags: dashboard,dashboard-install
+    shell: "kubectl apply -f {{ dashboardtemplates }}"
+    with_items: "{{ dashboardtemplates }}"
