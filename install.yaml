@@ -413,5 +413,5 @@
     with_items: "{{ dashboardtemplates }}"
   - name: 安装dashboard
     tags: dashboard,dashboard-install
-    shell: "kubectl apply -f {{ dashboardtemplates }}"
+    shell: "kubectl apply -f {{ item }}"
     with_items: "{{ dashboardtemplates }}"
