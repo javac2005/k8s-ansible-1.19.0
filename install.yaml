@@ -351,7 +351,7 @@
     - "pki/apiserver-etcd-client.crt"
     - "pki/etcd/ca.crt"
     - "admin.conf"
-  - name: master加入集群
+  - name: 其他master加入集群
     tags: masters,masters-join
     shell: "kubeadm join {{ groups.master[0] }}:6443 \
             --token {{ master_token.stdout }} --discovery-token-ca-cert-hash sha256:{{ discovery_token.stdout }} \
