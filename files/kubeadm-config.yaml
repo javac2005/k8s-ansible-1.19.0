@@ -3,6 +3,7 @@ kind: ClusterConfiguration
 imageRepository: "{{ google_repo }}"
 apiServer:
   certSANs:
+  - "{{ loadbalance_external_ip }}"
   - "{{ loadbalance_inside_ip }}"
   - "apiserver.{{ root_domain }}"
 {% for ipaddr in groups.master %}
