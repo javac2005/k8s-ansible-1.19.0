@@ -8,7 +8,7 @@
     ignore_errors: yes
 #准备，安装：必要软件、docker、k8s 
 #--------------------------------------------------------------------
-- hosts: all
+- hosts: etcd,master,node
   tasks:
   - name: 安装必要软件
     tags: prepare,prepare-softs
@@ -140,7 +140,7 @@
     lineinfile:
       path: /etc/hosts
       line: "{{ loadbalance_inside_ip }} apiserver.{{ root_domain }}"
-#安装三个etcd
+#生成证书
 #-------------------------------------------------------------------
 - hosts: ctrl
   vars:
@@ -189,6 +189,8 @@
             cp -R /etc/kubernetes/pki {{ item.path }} &&\ 
             find /etc/kubernetes/pki -not -name ca.crt -not -name ca.key -type f -delete"
     with_items: "{{ etcds }}"
+#安装etcd集群
+#-------------------------------------------------------------------
 - hosts: etcd
   tasks:
   - name: 先删除容器，防止多次安装的残留
@@ -224,6 +226,8 @@
             --peer-trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt \
             --snapshot-count=10000 \
             --trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt"
+#检查etcd集群状态
+#-------------------------------------------------------------------
 - hosts: etcd
   tasks:
   - name: 检查etcd集群的状态
@@ -282,10 +286,10 @@
   - name: 安装flannel网络
     tags: master,flannel
     shell: kubectl apply -f kube-flannel.yaml
-  - name: 从master[0]拷贝k8s的config
+  - name: 从master[0]拷贝k8s的config，以便用kubectl操作集群
     tags: master,master-admin
     fetch: src=/etc/kubernetes/admin.conf dest=/root/.kube/config flat=yes
-  - name: 从master[0]拷贝证书
+  - name: 从master[0]拷贝证书，其他master节点加入集群的时候要用
     tags: master,master-backup
     fetch: src="/etc/kubernetes/{{ item }}" dest="/data/kubernetes/{{ item }}" flat=yes
     with_items:
@@ -341,7 +345,7 @@
     file:
       path: /etc/kubernetes/pki/etcd/
       state: directory
-  - name: 拷贝证书文件
+  - name: 从控制节点拷贝证书文件
     tags: masters,masters-certs
     copy:
       src: "/data/kubernetes/{{ item }}"
