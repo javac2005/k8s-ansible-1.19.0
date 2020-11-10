@@ -1,4 +1,4 @@
-#更新
+#更新、安装必要软件和docker
 #--------------------------------------------------------------------
 - hosts: all
   tasks:
@@ -6,10 +6,6 @@
     tags: update
     yum: name=* state=latest
     ignore_errors: yes
-#准备，安装：必要软件、docker、k8s 
-#--------------------------------------------------------------------
-- hosts: etcd,master,node
-  tasks:
   - name: 安装必要软件
     tags: prepare,prepare-softs
     yum: name="{{ packages }}" state=present
@@ -76,11 +72,6 @@
     tags: prepare,prepare-docker
     shell: "if systemctl list-unit-files | grep docker.service > /dev/null; then echo 1; else echo 0; fi;"
     register: check_docker
-  - name: 清理未完成事务，防止有未完成的安装任务造成等待
-    tags: prepare,prepare-docker
-    shell: "yum-complete-transaction --cleanup-only || 0"
-    when: check_docker.stdout == "0"
-    ignore_errors: yes
   - name: 安装containerd.io-1.2.6，因为docker-ce要求containerd版本大于1.2.2
     tags: prepare,prepare-docker
     yum: name=https://pubsrc.oss-cn-beijing.aliyuncs.com/containerd.io-1.2.6-3.3.el7.x86_64.rpm disable_gpg_check=yes state=present
@@ -99,6 +90,10 @@
   - name: 启动 docker
     tags: prepare,prepare-docker
     shell: systemctl daemon-reload && systemctl enable docker && systemctl start docker
+#安装k8s
+#-------------------------------------------------------------------
+- hosts: master,node
+  tasks:
   - name: 配置k8s源
     tags: prepare,prepare-k8s
     copy: src=files/kubernetes.repo dest=/etc/yum.repos.d/
@@ -106,13 +101,6 @@
     tags: prepare,prepare-k8s
     shell: "if systemctl list-unit-files | grep kubelet.service > /dev/null; then echo 1; else echo 0; fi;"
     register: check_k8s
-  - name: 清理未完成事务，防止有未完成的安装任务造成等待
-    tags: prepare,prepare-k8s
-    shell: "yum-complete-transaction --cleanup-only"
-    when: check_k8s.stdout == "0"
-    ignore_errors: yes
-- hosts: master,node
-  tasks:
   - name: 安装k8s
     tags: prepare,prepare-k8s
     yum: name={{ packages }} state=present
@@ -126,21 +114,23 @@
   - name: 开机启动kubelet
     tags: prepare,prepare-k8s
     shell: systemctl daemon-reload && systemctl enable kubelet
+#配置master的hosts
+#-------------------------------------------------------------------
 - hosts: master
   tasks:
-  - name: 配置master的host：多个master负载均衡（master）
+  - name: 配置master的host
     tags: loadbalance-master
     lineinfile:
       path: /etc/hosts
       line: "{{ groups.master[0] }} apiserver.{{ root_domain }}"
 - hosts: node,ctrl
   tasks:
-  - name: 配置node的host：多个master负载均衡
+  - name: 配置node的host为内网负载均衡地址，apiserver负载均衡
     tags: loadbalance-nodes
     lineinfile:
       path: /etc/hosts
       line: "{{ loadbalance_inside_ip }} apiserver.{{ root_domain }}"
-#生成证书
+#生成集群所需的证书
 #-------------------------------------------------------------------
 - hosts: ctrl
   vars:
