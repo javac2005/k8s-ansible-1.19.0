@@ -1,38 +1,37 @@
-
 #配置文件，凡是以 * 开头的都需要根据实际情况修改
 
 # * 主控端，此节点制作远程命令执行，只改IP
 [ctrl]
-10.0.0.1 hostname=ctrl
+172.17.36.198 hostname=ctrl
 
 # * etcd节点列表，hostname自定义主机名，只改IP
 [etcd]
-10.0.0.1 hostname=etcd0
-10.0.0.2 hostname=etcd1
-10.0.0.3 hostname=etcd2
+172.17.36.200 hostname=etcd0
+172.17.36.199 hostname=etcd1
+172.17.36.201 hostname=etcd2
 
 # * master节点列表，hostname自定义主机名，只改IP
 [master]
-10.0.0.45 hostname=master0
-10.0.0.51 hostname=master1
-10.0.0.55 hostname=master2
+172.17.36.205 hostname=master0
+172.17.36.203 hostname=master1
+172.17.36.204 hostname=master2
 
 # * node节点列表，hostname自定义主机名，只改IP
 [node]
-10.0.0.22 hostname=node0
-10.0.0.52 hostname=node1
+172.17.36.206 hostname=node0
+172.17.36.202 hostname=node1
 
 #系统变量，凡是以 * 开头的都需要根据实际情况修改
 [all:vars]
 
 # * 根域名，注意如果需要外网访问要写真实的外网域名
-root_domain="test.com"
+root_domain="gdqhd.cn"
 
 # * apiserver负载均衡（内网）IP
-loadbalance_inside_ip="192.168.0.24"
+loadbalance_inside_ip="172.17.36.152"
 
 # * 负载均衡公网IP，如果没有写负载均衡内网IP
-loadbalance_external_ip="47.92.130.28"
+loadbalance_external_ip="8.131.89.255"
 
 # * google镜像国内仓库前缀，用aliyun的
 google_repo="registry.aliyuncs.com/google_containers"
