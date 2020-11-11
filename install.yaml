@@ -114,6 +114,16 @@
   - name: 开机启动kubelet
     tags: prepare,prepare-k8s
     shell: systemctl daemon-reload && systemctl enable kubelet
+- hosts: master[0]
+  tasks:
+  - name: 为ctrl节点安装kubectl
+    tags: prepare,ctrl-kubectl
+    fetch: src="/usr/bin/kubectl" dest="/usr/bin/kubectl" flat=yes
+- hosts: ctrl
+  tasks:
+  - name: 修改kubectl权限
+    tags: prepare,ctrl-kubectl
+    file: path=/usr/bin/kubectl mode=0755
 #配置master的hosts
 #-------------------------------------------------------------------
 - hosts: master
