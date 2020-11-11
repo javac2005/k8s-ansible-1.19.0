@@ -26,7 +26,7 @@
 [all:vars]
 
 # * 根域名，注意如果需要外网访问要写真实的外网域名
-root_domain="test.com"
+root_domain="gdqhd.cn"
 
 # * apiserver负载均衡（内网）IP
 loadbalance_inside_ip="192.168.0.24"
