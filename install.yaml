@@ -365,6 +365,9 @@
     until: masters_result.stdout >= "17"
     retries: 9999
     delay: 5
+  - name: 等待master启动，1分钟
+    tags: masters,masters-wait
+    shell: sleep 60
 #node加入集群
 #--------------------------------------------------------------------
 - hosts: node
