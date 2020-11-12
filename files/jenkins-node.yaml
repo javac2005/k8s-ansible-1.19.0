@@ -1,0 +1,55 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins-node
+  namespace: kube-public
+  labels:
+    app: jenkins-node
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jenkins-node
+  template:
+    metadata:
+      labels:
+        app: jenkins-node
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: jenkins-node
+        image: "registry.cn-beijing.aliyuncs.com/k8s-pub/docker:dind"
+        command: ["dockerd"]
+        args:
+        - "--host=unix:///var/run/docker.sock"
+        - "--host=tcp://0.0.0.0:2375"
+        securityContext:
+          privileged: true
+        ports:
+        - containerPort: 2375
+          name: docker
+          protocol: TCP
+        volumeMounts:
+        - name: localtime
+          mountPath: /etc/localtime
+          readOnly: true
+      volumes:
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins-node
+  namespace: kube-public
+  labels:
+    app: jenkins-node
+spec:
+  selector:
+    app: jenkins-node
+  ports:
+  - name: docker
+    port: 2375
+    targetPort: docker
