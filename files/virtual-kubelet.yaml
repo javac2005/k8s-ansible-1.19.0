@@ -60,8 +60,8 @@ spec:
           #专有网络id，与ecs保持一致
           value: vpc-2zecs39xp3dn6xxmpuwtj
         - name: ECI_VSWITCH
-          #虚拟交换机id，与ecs保持一致
-          value: vsw-2zekptuain8x1rssuirx7
+          #虚拟交换机id，建议多写几个，防止区域没有资源
+          value: "vsw-2zekptuain8x1rssuirx7,vsw-2zeuf0599ayu0jiysbiil,vsw-2zehsjroclse8t71wxrgt"
         - name: ECI_SECURITY_GROUP
           #安全组id，与ecs保持一致
           value: sg-2ze7eooolbxantskgrax
