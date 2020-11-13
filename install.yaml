@@ -441,7 +441,7 @@
   - name: 初始化
     tags: helm
     shell: helm init --stable-repo-url https://kubernetes.oss-cn-hangzhou.aliyuncs.com/charts --client-only
-  - name: 拷贝tiller-rbac.yaml配置文件
+  - name: 拷贝tiller.yaml配置文件
     tags: helm
     template:
       src: files/tiller.yaml
