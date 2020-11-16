@@ -23,16 +23,15 @@
     with_items: "{{ jenkinstemplates }}"
   - name: 等待jenkins启动
     tags: jenkins,jenkins-wait
-    shell: kubectl get pods -n kube-public | grep jenkins | grep -c Running
+    shell: kubectl logs -l app=jenkins --tail 100  -n kube-public | grep -c "password to proceed"
     register: jenkins_result
-    until: jenkins_result.stdout >= "2"
+    until: jenkins_result.stdout >= "1"
     retries: 9999
     delay: 5
   - name: 获得jenkins的访问token
     tags: jenkins,jenkins-token
     shell: kubectl logs -l app=jenkins --tail 100  -n kube-public
     register: tokenMsg
-    delay: 20
   - name: 打印jenkins的访问token
     tags: jenkins,jenkins-token
     debug: var=tokenMsg.stdout
