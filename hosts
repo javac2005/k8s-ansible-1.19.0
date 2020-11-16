@@ -38,3 +38,33 @@ google_repo="registry.aliyuncs.com/google_containers"
 
 # * k8s 镜像国内仓库前缀，aliyun没有的
 k8s_repo="registry.cn-beijing.aliyuncs.com/k8s-pub"
+
+# 阿里云ECI（如果需要安装阿里云虚拟节点，以下配置必填）
+#区域id
+ECI_REGION=""
+#专有网络id
+ECI_VPC=""
+#虚拟交换机id，建议多写几个，防止区域没有资源
+ECI_VSWITCH=""
+#安全组id
+ECI_SECURITY_GROUP=""
+#阿里云账号AccessKey ID
+ECI_ACCESS_KEY=""
+#阿里云账号AccessKey Secret
+ECI_SECRET_KEY=""
+#集群id，自定义
+ALIYUN_CLUSTERID=""
+
+# 应用商店的配置（如果需要安装应用商店，以下配置必填，这里用了阿里云OSS作为后端存储）：
+#存储使用阿里云OSS
+APPSTORE_STORAGE_ALIBABA_BUCKET=""
+#阿里云OSS的BUCKET
+APPSTORE_STORAGE_ALIBABA_ENDPOINT=""
+#管理员账号（调用出get外接口都需要账号密码）
+APPSTORE_BASIC_AUTH_USER=""
+#管理员密码
+APPSTORE_BASIC_AUTH_PASS=""
+#阿里云OSS的accessKey ID
+APPSTORE_ALIBABA_CLOUD_ACCESS_KEY_ID=""
+#阿里云OSS的accessKey Secret
+APPSTORE_ALIBABA_CLOUD_ACCESS_KEY_SECRET=""

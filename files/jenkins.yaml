@@ -65,7 +65,7 @@ spec:
       serviceAccount: jenkins
       containers:
       - name: jenkins
-        image: registry.cn-beijing.aliyuncs.com/k8s-pub/jenkinsci-blueocean
+        image: "{{ k8s_repo }}/jenkinsci-blueocean"
         securityContext:
           privileged: true
         env:
@@ -120,7 +120,7 @@ metadata:
   namespace: kube-public
 spec:
   rules:
-  - host: "jenkins.gdqhd.cn"
+  - host: "jenkins.{{ root_domain }}"
     http:
       paths:
       - pathType: Prefix

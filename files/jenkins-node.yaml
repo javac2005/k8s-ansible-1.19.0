@@ -19,7 +19,7 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
       - name: jenkins-node
-        image: "registry.cn-beijing.aliyuncs.com/k8s-pub/docker:dind"
+        image: "{{ k8s_repo }}/docker:dind"
         command: ["dockerd"]
         args:
         - "--host=unix:///var/run/docker.sock"

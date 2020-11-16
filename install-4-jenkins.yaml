@@ -1,0 +1,25 @@
+#安装jenkins及节点
+#--------------------------------------------------------------------
+- hosts: master[0]
+  vars:
+    jenkinstemplates:
+    - "jenkins.yaml"
+    - "jenkins-node.yaml"
+  tasks:
+  - name: jenkins配置文件
+    tags: jenkins,jenkins-templates
+    template:
+      src: files/{{ item }}
+      dest: ./{{ item }}
+    with_items: "{{ jenkinstemplates }}"
+  - name: 安装jenkins
+    tags: jenkins,jenkins-install
+    shell: "kubectl apply -f {{ item }}"
+    with_items: "{{ jenkinstemplates }}"
+  - name: 等待jenkins启动
+    tags: jenkins,jenkins-wait
+    shell: kubectl get pods -n kube-public | grep jenkins | grep -c Running
+    register: jenkins_result
+    until: jenkins_result.stdout >= "2"
+    retries: 9999
+    delay: 5

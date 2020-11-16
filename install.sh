@@ -28,4 +28,3 @@ chmod 600 ~/.ssh/id_rsa.pub
 #git clone安装脚本
 git clone https://github.com/javac2005/ansible-k8s-1.19.0.git
 
-cd ansible-k8s-1.19.0

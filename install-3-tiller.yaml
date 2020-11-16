@@ -1,0 +1,36 @@
+#安装应用管理（安装/更新/删除应用商店的应用）
+# tiller，应用管理的服务端
+# helm，应用管理的客户端
+#--------------------------------------------------------------------
+- hosts: ctrl
+  tasks:
+  - name: 检查helm是否存在
+    tags: helm
+    local_action: stat path=/usr/bin/helm
+    register: stat_result_helm
+  - name: 下载helm二进制文件
+    tags: helm
+    shell: "rm -rf /usr/bin/helm /usr/bin/tiller &&\
+            docker pull {{ k8s_repo }}/helm:v2.13.0-rc.2 &&\
+            docker run --rm -v /tmp/helm/:/tmp/helm/ \
+            {{ k8s_repo }}/helm:v2.13.0-rc.2 sh -c 'cp /helm/* /tmp/helm' &&\
+            mv /tmp/helm/* /usr/bin/ && chmod +x /usr/bin/helm /usr/bin/tiller"
+    when: stat_result_helm.stat.exists == false
+  - name: 初始化
+    tags: helm
+    shell: helm init --stable-repo-url https://kubernetes.oss-cn-hangzhou.aliyuncs.com/charts --client-only
+  - name: 拷贝tiller.yaml配置文件
+    tags: helm
+    template:
+      src: files/tiller.yaml
+      dest: ./tiller.yaml
+  - name: 安装tiller到集群
+    tags: helm
+    shell: kubectl apply -f tiller.yaml
+  - name: 等待tiller启动
+    tags: helm,helm-wait
+    shell: kubectl get pods -n kube-system | grep tiller | grep -c Running
+    register: helm_result
+    until: helm_result.stdout >= "1"
+    retries: 9999
+    delay: 5

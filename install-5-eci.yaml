@@ -1,0 +1,19 @@
+#安装阿里云虚拟节点
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: eci配置文件
+    tags: eci,eci-templates
+    template:
+      src: files/virtual-kubelet.yaml
+      dest: ./virtual-kubelet.yaml
+  - name: 安装eci
+    tags: eci,eci-install
+    shell: kubectl apply -f virtual-kubelet.yaml
+  - name: 等待eci启动
+    tags: eci,eci-wait
+    shell: kubectl get node | grep virtual-kubelet | grep -c Ready
+    register: eci_result
+    until: eci_result.stdout >= "1"
+    retries: 9999
+    delay: 5

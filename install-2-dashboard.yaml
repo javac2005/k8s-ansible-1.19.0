@@ -1,0 +1,19 @@
+#安装dashboard
+#--------------------------------------------------------------------
+- hosts: master[0]
+  vars:
+    dashboardtemplates:
+    - "dashboard-2.0.4.yaml"
+    - "dashboard-rbac.yaml"
+    - "dashboard-ingress.yaml"
+  tasks:
+  - name: dashboard配置文件
+    tags: dashboard,dashboard-templates
+    template:
+      src: files/{{ item }}
+      dest: ./{{ item }}
+    with_items: "{{ dashboardtemplates }}"
+  - name: 安装dashboard
+    tags: dashboard,dashboard-install
+    shell: "kubectl apply -f {{ item }}"
+    with_items: "{{ dashboardtemplates }}"

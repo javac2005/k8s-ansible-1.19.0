@@ -1,0 +1,12 @@
+#安装ingress
+#--------------------------------------------------------------------
+- hosts: master[0]
+  tasks:
+  - name: ingress配置文件
+    tags: ingress,ingress-templates
+    template:
+      src: files/ingress-0.30.0.yaml
+      dest: ./ingress-0.30.0.yaml
+  - name: 安装ingress
+    tags: ingress,ingress-install
+    shell: kubectl apply -f ingress-0.30.0.yaml

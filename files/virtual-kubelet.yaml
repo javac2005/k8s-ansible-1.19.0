@@ -55,22 +55,22 @@ spec:
           value: "NoSchedule"
         - name: ECI_REGION
           #区域id，与ecs保持一致
-          value: cn-beijing
+          value: "{{ ECI_REGION }}"
         - name: ECI_VPC
           #专有网络id，与ecs保持一致
-          value: vpc-2zecs39xp3dn6xxmpuwtj
+          value: "{{ ECI_VPC }}"
         - name: ECI_VSWITCH
           #虚拟交换机id，建议多写几个，防止区域没有资源
-          value: "vsw-2zekptuain8x1rssuirx7,vsw-2zeuf0599ayu0jiysbiil,vsw-2zehsjroclse8t71wxrgt"
+          value: "{{ ECI_VSWITCH }}"
         - name: ECI_SECURITY_GROUP
           #安全组id，与ecs保持一致
-          value: sg-2ze7eooolbxantskgrax
+          value: "{{ ECI_SECURITY_GROUP }}"
         - name: ECI_ACCESS_KEY
           #AccessKey ID
-          value: xxxxxx
+          value: "{{ ECI_ACCESS_KEY }}"
         - name: ECI_SECRET_KEY
           #AccessKey Secret
-          value: xxxxxxxxx
+          value: "{{ ECI_SECRET_KEY }}"
           #集群id，自定义
         - name: ALIYUN_CLUSTERID
-          value: g3o8ujdh1k89hqwl
+          value: "{{ ALIYUN_CLUSTERID }}"
