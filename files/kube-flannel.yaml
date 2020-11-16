@@ -198,6 +198,8 @@ spec:
           capabilities:
             add: ["NET_ADMIN", "NET_RAW"]
         env:
+        - name: TZ
+          value: Asia/Shanghai
         - name: POD_NAME
           valueFrom:
             fieldRef:

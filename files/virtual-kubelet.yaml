@@ -41,6 +41,8 @@ spec:
         imagePullPolicy: Always
         args: ["--provider", "alibabacloud"]
         env:
+        - name: TZ
+          value: Asia/Shanghai
         - name: KUBELET_PORT
           value: "10250"
         - name: VKUBELET_POD_IP

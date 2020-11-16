@@ -240,6 +240,8 @@ spec:
             # www-data -> 101
             runAsUser: 101
           env:
+            - name: TZ
+              value: Asia/Shanghai
             - name: POD_NAME
               valueFrom:
                 fieldRef:

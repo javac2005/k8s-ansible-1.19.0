@@ -189,6 +189,9 @@ spec:
         - name: kubernetes-dashboard
           image: "{{ k8s_repo }}/dashboard:v2.0.4"
           imagePullPolicy: Always
+          env:
+          - name: TZ
+            value: Asia/Shanghai
           ports:
             - containerPort: 8443
               protocol: TCP

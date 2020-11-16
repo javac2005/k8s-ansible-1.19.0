@@ -45,6 +45,8 @@ spec:
       automountServiceAccountToken: true
       containers:
       - env:
+        - name: TZ
+          value: Asia/Shanghai
         - name: TILLER_NAMESPACE
           value: kube-system
         - name: TILLER_HISTORY_MAX

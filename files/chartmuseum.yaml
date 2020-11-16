@@ -18,6 +18,8 @@ spec:
       - name: chartmuseum
         image: "chartmuseum/chartmuseum:latest"
         env:
+        - name: TZ
+          value: Asia/Shanghai
         - name: "STORAGE" #存储使用阿里云OSS
           value: "alibaba"
         - name: "STORAGE_ALIBABA_BUCKET" #阿里云OSS的BUCKET
