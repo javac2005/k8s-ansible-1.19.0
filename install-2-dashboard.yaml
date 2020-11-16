@@ -17,3 +17,10 @@
     tags: dashboard,dashboard-install
     shell: "kubectl apply -f {{ item }}"
     with_items: "{{ dashboardtemplates }}"
+  - name: 等待dashboard启动
+    tags: dashboard,dashboard-wait
+    shell: kubectl get pods -n kubernetes-dashboard  | grep kubernetes-dashboard | grep -c Running
+    register: dashboard_result
+    until: dashboard_result.stdout >= "1"
+    retries: 9999
+    delay: 5

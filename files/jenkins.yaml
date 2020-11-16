@@ -63,6 +63,7 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       serviceAccount: jenkins
+      nodeName: "{{ node_name }}"
       containers:
       - name: jenkins
         image: "{{ k8s_repo }}/jenkinsci-blueocean"
