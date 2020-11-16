@@ -253,7 +253,7 @@
   - name: 拷贝kubeadm-config.yaml配置文件
     tags: master,master-copy-config
     template:
-      src: files/kubeadm-config.yaml
+      src: files/kubeadm-config.j2
       dest: ./kubeadm-config.yaml
   - name: 创建etcd证书目录
     tags: master,master-copy-etcd

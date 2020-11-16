@@ -20,6 +20,9 @@ spec:
       containers:
       - name: jenkins-node
         image: "{{ k8s_repo }}/docker:dind"
+        env:
+        - name: TZ
+          value: Asia/Shanghai
         command: ["dockerd"]
         args:
         - "--host=unix:///var/run/docker.sock"
@@ -37,7 +40,7 @@ spec:
       volumes:
         - name: localtime
           hostPath:
-            path: /etc/localtime
+            path: /usr/share/zoneinfo/Asia/Shanghai
 ---
 apiVersion: v1
 kind: Service
