@@ -32,6 +32,7 @@
     tags: jenkins,jenkins-token
     shell: kubectl logs -l app=jenkins --tail 100  -n kube-public
     register: tokenMsg
+    delay: 20
   - name: 打印jenkins的访问token
     tags: jenkins,jenkins-token
     debug: var=tokenMsg.stdout
