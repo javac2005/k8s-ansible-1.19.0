@@ -10,3 +10,10 @@
   - name: 安装ingress
     tags: ingress,ingress-install
     shell: kubectl apply -f ingress-0.30.0.yaml
+  - name: 等待ingress启动
+    tags: ingress,ingress-wait
+    shell: kubectl get pods -n ingress-nginx | grep ingress | grep -c Running
+    register: ingress_result
+    until: ingress_result.stdout >= "1"
+    retries: 9999
+    delay: 5
