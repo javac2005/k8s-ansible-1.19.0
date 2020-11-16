@@ -40,8 +40,8 @@ google_repo="registry.aliyuncs.com/google_containers"
 k8s_repo="registry.cn-beijing.aliyuncs.com/k8s-pub"
 
 #Jenkins配置（如果需要安装Jenkins，以下配置必填）
-#Jenkins状态哪个节点，可用“kubectl get node”命令查出节点名称
-node_name="k8s-7"
+#Jenkins状态哪个节点（注意必须是node节点，不能是master），可用“kubectl get node”命令查出节点名称
+JENKINS_NODE_NAME=""
 
 # 阿里云ECI（如果需要安装阿里云虚拟节点，以下配置必填）
 #区域id

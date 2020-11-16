@@ -1,5 +1,10 @@
 #安装jenkins及节点
 #--------------------------------------------------------------------
+- hosts: node
+  tasks:
+  - name: 创建jenkisn目录
+    tags: jenkins,jenkins-mkdir
+    shell: "mkdir -p /data/jenkins && chown -R 1000:1000 /data/jenkins"
 - hosts: master[0]
   vars:
     jenkinstemplates:
